@@ -1,34 +1,54 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+function tabIcon(active: IoniconName, inactive: IoniconName) {
+  return ({ color, focused }: { color: string; focused: boolean }) => (
+    <Ionicons name={focused ? active : inactive} size={24} color={color} />
+  );
+}
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: Colors.emerald600,
+        tabBarInactiveTintColor: Colors.gray400,
         headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        tabBarStyle: {
+          backgroundColor: Colors.white,
+          borderTopColor: Colors.gray200,
+          paddingTop: 4,
+          paddingBottom: 8,
+          height: 68,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
+        options={{ title: 'Home', tabBarIcon: tabIcon('home', 'home-outline') }}
       />
       <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
+        name="routes"
+        options={{ title: 'Routes', tabBarIcon: tabIcon('map', 'map-outline') }}
+      />
+      <Tabs.Screen
+        name="impact"
+        options={{ title: 'Impact', tabBarIcon: tabIcon('leaf', 'leaf-outline') }}
+      />
+      <Tabs.Screen
+        name="rewards"
+        options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{ title: 'Profile', tabBarIcon: tabIcon('person', 'person-outline') }}
       />
     </Tabs>
   );
