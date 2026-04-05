@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 
@@ -31,21 +32,22 @@ type MenuItem = {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   label: string;
   toggle?: boolean;
+  route?: string;
 };
 
 const menuSections: { title: string; items: MenuItem[] }[] = [
   {
     title: 'Account',
     items: [
-      { icon: 'person-outline',           label: 'Edit Profile' },
-      { icon: 'notifications-outline',    label: 'Notifications', toggle: true },
+      { icon: 'person-outline',           label: 'Edit Profile',        route: '/edit-profile' },
+      { icon: 'notifications-outline',    label: 'Notifications',       toggle: true },
       { icon: 'shield-checkmark-outline', label: 'Privacy & Security' },
     ],
   },
   {
     title: 'App Settings',
     items: [
-      { icon: 'location-outline',  label: 'Default Routes'    },
+      { icon: 'location-outline',  label: 'Saved Routes',    route: '/saved-routes' },
       { icon: 'settings-outline',  label: 'Preferences'       },
       { icon: 'card-outline',      label: 'Payment Methods'   },
     ],
@@ -100,7 +102,7 @@ export default function ProfileScreen() {
                   <Text style={styles.profileName}>{user.name}</Text>
                   <Text style={styles.profileEmail}>{user.email}</Text>
                 </View>
-                <TouchableOpacity activeOpacity={0.7}>
+                <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/edit-profile')}>
                   <Ionicons name="create-outline" size={20} color="rgba(255,255,255,0.8)" />
                 </TouchableOpacity>
               </View>
@@ -151,6 +153,7 @@ export default function ProfileScreen() {
                     key={item.label}
                     style={[styles.menuItem, !isLast && styles.menuItemBorder]}
                     activeOpacity={0.7}
+                    onPress={item.route ? () => router.push(item.route as any) : undefined}
                   >
                     <View style={styles.menuItemLeft}>
                       <View style={styles.menuItemIconBox}>
@@ -192,7 +195,7 @@ export default function ProfileScreen() {
         </LinearGradient>
 
         {/* Log Out */}
-        <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={() => router.replace('/log-in')}>
           <Ionicons name="log-out-outline" size={20} color={Colors.red600} />
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>

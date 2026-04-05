@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import Svg, { Path, Rect, Defs, Pattern, Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
@@ -258,7 +259,7 @@ export default function RoutesScreen() {
               </LinearGradient>
 
               {/* Start Navigation */}
-              <TouchableOpacity style={styles.startBtn} activeOpacity={0.9}>
+              <TouchableOpacity style={styles.startBtn} activeOpacity={0.9} onPress={() => router.push('/route-detail')}>
                 <Ionicons name="navigate-outline" size={20} color={Colors.white} />
                 <Text style={styles.startBtnText}>Start Navigation</Text>
               </TouchableOpacity>
@@ -306,7 +307,7 @@ export default function RoutesScreen() {
                     <Text style={styles.pointsSub}>When you visit on this route</Text>
                   </View>
                 </LinearGradient>
-                <TouchableOpacity style={styles.earnBtn} activeOpacity={0.9}>
+                <TouchableOpacity style={styles.earnBtn} activeOpacity={0.9} onPress={() => { closeSheet(); router.push('/route-detail'); }}>
                   <Text style={styles.earnBtnText}>Earn with this route</Text>
                 </TouchableOpacity>
               </View>

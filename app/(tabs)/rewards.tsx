@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 
@@ -183,6 +184,7 @@ export default function RewardsScreen() {
                         style={[styles.redeemBtn, !canAfford && styles.redeemBtnLocked]}
                         disabled={!canAfford}
                         activeOpacity={0.85}
+                        onPress={() => router.push('/coupon-detail')}
                       >
                         <Text style={[styles.redeemBtnText, !canAfford && styles.redeemBtnTextLocked]}>
                           {canAfford ? 'Redeem' : 'Locked'}
@@ -231,7 +233,7 @@ export default function RewardsScreen() {
               <View style={styles.redeemedBottom}>
                 <Text style={styles.redeemedDate}>Redeemed: {r.redeemedDate}</Text>
                 {r.status === 'Active' && (
-                  <TouchableOpacity activeOpacity={0.7}>
+                  <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/coupon-redeemed')}>
                     <Text style={styles.useNowText}>Use Now</Text>
                   </TouchableOpacity>
                 )}

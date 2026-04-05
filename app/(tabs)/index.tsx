@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import Svg, { Path, Rect, Defs, Pattern } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
@@ -198,7 +199,7 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.findBtn} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.findBtn} activeOpacity={0.9} onPress={() => router.push('/search')}>
               <Ionicons name="navigate-outline" size={20} color={Colors.white} />
               <Text style={styles.findBtnText}>Find Eco-Route</Text>
             </TouchableOpacity>
@@ -209,14 +210,14 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.rowBetween}>
             <Text style={styles.sectionTitle}>Quick Routes</Text>
-            <TouchableOpacity style={styles.viewAllRow} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.viewAllRow} activeOpacity={0.7} onPress={() => router.push('/(tabs)/routes')}>
               <Text style={styles.viewAllText}>View All</Text>
               <Ionicons name="chevron-forward-outline" size={16} color={Colors.emerald600} />
             </TouchableOpacity>
           </View>
           <View style={styles.routeListWrap}>
             {quickRoutes.map((route) => (
-              <TouchableOpacity key={route.name} style={styles.routeCard} activeOpacity={0.85}>
+              <TouchableOpacity key={route.name} style={styles.routeCard} activeOpacity={0.85} onPress={() => router.push('/route-detail')}>
                 <View style={styles.rowBetween}>
                   <View>
                     <Text style={styles.routeCardName}>{route.name}</Text>
@@ -289,7 +290,7 @@ export default function HomeScreen() {
                   </View>
                 </LinearGradient>
 
-                <TouchableOpacity style={styles.earnBtn} activeOpacity={0.9}>
+                <TouchableOpacity style={styles.earnBtn} activeOpacity={0.9} onPress={() => { closeSheet(); router.push('/route-detail'); }}>
                   <Text style={styles.earnBtnText}>Earn with this route</Text>
                 </TouchableOpacity>
               </View>

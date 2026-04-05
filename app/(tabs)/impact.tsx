@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 
@@ -219,6 +220,26 @@ export default function ImpactScreen() {
         </View>
       </View>
 
+      {/* Monthly Report CTA */}
+      <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.monthlyReportBtn}
+          onPress={() => router.push('/monthly-report')}
+          activeOpacity={0.9}
+        >
+          <View style={styles.monthlyReportLeft}>
+            <View style={styles.monthlyReportIconBox}>
+              <Ionicons name="bar-chart-outline" size={22} color={Colors.emerald600} />
+            </View>
+            <View>
+              <Text style={styles.monthlyReportTitle}>Monthly Report</Text>
+              <Text style={styles.monthlyReportSub}>View full March 2026 breakdown</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward-outline" size={20} color={Colors.emerald600} />
+        </TouchableOpacity>
+      </View>
+
       {/* Comparison Card */}
       <View style={[styles.section, { marginBottom: 24 }]}>
         <LinearGradient colors={[Colors.emerald600, Colors.emerald700]} style={styles.comparisonCard}>
@@ -312,6 +333,30 @@ const styles = StyleSheet.create({
   progressPct: { color: Colors.emerald600, fontWeight: '600', fontSize: 12 },
   progressTrack: { height: 8, backgroundColor: Colors.gray100, borderRadius: 4, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: Colors.emerald600, borderRadius: 4 },
+
+  // Monthly report button
+  monthlyReportBtn: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+    ...Shadow.sm,
+  },
+  monthlyReportLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  monthlyReportIconBox: {
+    width: 44,
+    height: 44,
+    backgroundColor: Colors.emerald50,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthlyReportTitle: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 2 },
+  monthlyReportSub: { color: Colors.gray500, fontSize: 13 },
 
   // Comparison
   comparisonCard: { borderRadius: 16, padding: 24 },
