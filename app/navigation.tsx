@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -13,21 +14,70 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
-import Svg, { Path, Rect, Defs, Pattern, Circle } from 'react-native-svg';
+import { api } from '@/lib/api';
+import { routeStore } from '@/lib/routeStore';
+import { decodePolyline } from '@/lib/polyline';
+
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const PROGRESS = 45;
+
+function modeLabel(mode: string): string {
+  switch (mode) {
+    case 'CYCLING': return 'Cycling';
+    case 'TRANSIT': return 'Transit';
+    case 'WALKING': return 'Walking';
+    case 'CYCLING_TRANSIT': return 'Cycling + Transit';
+    case 'EV': return 'Electric Vehicle';
+    default: return 'Navigating';
+  }
+}
+
+function modeNavIcon(mode: string): React.ComponentProps<typeof Ionicons>['name'] {
+  switch (mode) {
+    case 'CYCLING': return 'bicycle-outline';
+    case 'TRANSIT': return 'bus-outline';
+    case 'WALKING': return 'footsteps-outline';
+    case 'CYCLING_TRANSIT': return 'git-merge-outline';
+    default: return 'navigate-outline';
+  }
+}
 
 export default function NavigationScreen() {
   const insets = useSafeAreaInsets();
+  const [completing, setCompleting] = useState(false);
 
+  const state = routeStore.get();
+  const route = state ? state.routes[state.selectedIndex] : null;
+  const polylineCoords = route?.polyline ? decodePolyline(route.polyline) : [];
+
+  const originCoord = state
+    ? { latitude: state.originLat, longitude: state.originLng }
+    : { latitude: 37.7749, longitude: -122.4194 };
+  const destCoord = state
+    ? { latitude: state.destLat, longitude: state.destLng }
+    : { latitude: 37.7849, longitude: -122.4094 };
+
+  const midLat = (originCoord.latitude + destCoord.latitude) / 2;
+  const midLng = (originCoord.longitude + destCoord.longitude) / 2;
+  const initialRegion = {
+    latitude: midLat,
+    longitude: midLng,
+    latitudeDelta: Math.abs(originCoord.latitude - destCoord.latitude) * 2.5 + 0.01,
+    longitudeDelta: Math.abs(originCoord.longitude - destCoord.longitude) * 2.5 + 0.01,
+  };
+
+  const co2SavedKg = route
+    ? (route.co2SavedVsCar / 1000).toFixed(2)
+    : '0.00';
+
+  // Animations
   const instructionAnim = useRef(new Animated.Value(-120)).current;
   const instructionOpacity = useRef(new Animated.Value(0)).current;
   const modeAnim = useRef(new Animated.Value(-120)).current;
   const modeOpacity = useRef(new Animated.Value(0)).current;
   const panelAnim = useRef(new Animated.Value(120)).current;
   const panelOpacity = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
   const leafScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -46,47 +96,76 @@ export default function NavigationScreen() {
       ]),
     ]).start();
 
-    Animated.timing(progressAnim, { toValue: PROGRESS / 100, duration: 1000, useNativeDriver: false }).start();
-
     Animated.loop(
       Animated.sequence([
-        Animated.timing(leafScale, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(leafScale, { toValue: 1.12, duration: 1000, useNativeDriver: true }),
         Animated.timing(leafScale, { toValue: 1, duration: 1000, useNativeDriver: true }),
       ]),
     ).start();
   }, []);
 
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
+  const firstStep = route?.steps?.[0];
+
+  const handleEndRoute = async () => {
+    Alert.alert('End Route?', 'Do you want to complete this trip and save your impact?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Complete Trip',
+        style: 'default',
+        onPress: async () => {
+          setCompleting(true);
+          try {
+            if (state && route) {
+              await api.post('/api/trips/complete', {
+                mode: route.mode,
+                originLat: state.originLat,
+                originLng: state.originLng,
+                destLat: state.destLat,
+                destLng: state.destLng,
+                originAddress: state.originAddress,
+                destAddress: state.destAddress,
+                distanceKm: route.distanceKm,
+                durationMinutes: route.durationMinutes,
+              });
+            }
+          } catch {
+            // Even if API fails, continue to trip-completed screen
+          } finally {
+            setCompleting(false);
+            router.push('/trip-completed');
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
       {/* Full-screen map */}
-      <View style={styles.mapArea}>
-        <LinearGradient colors={[Colors.emerald100, '#dbeafe']} style={StyleSheet.absoluteFillObject} />
-        <Svg style={StyleSheet.absoluteFillObject}>
-          <Defs>
-            <Pattern id="nav-grid" width={40} height={40} patternUnits="userSpaceOnUse">
-              <Path d="M 40 0 L 0 0 0 40" fill="none" stroke="#10b981" strokeWidth="1" opacity="0.2" />
-            </Pattern>
-          </Defs>
-          <Rect x={0} y={0} width={800} height={1200} fill="url(#nav-grid)" />
-          {/* Route path */}
-          <Path
-            d={`M ${SCREEN_WIDTH / 2} 700 L ${SCREEN_WIDTH / 2} 500 L ${SCREEN_WIDTH / 2 + 35} 300 L ${SCREEN_WIDTH / 2 + 65} 150`}
-            stroke={Colors.emerald600}
-            strokeWidth="6"
-            fill="none"
-            strokeLinecap="round"
+      <MapView
+        style={styles.mapArea}
+        provider={PROVIDER_GOOGLE}
+        initialRegion={initialRegion}
+        showsUserLocation
+        showsMyLocationButton={false}
+        scrollEnabled={false}
+        zoomEnabled={false}
+      >
+        {polylineCoords.length > 1 ? (
+          <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={6} />
+        ) : (
+          // Fallback straight line if no polyline
+          <Polyline
+            coordinates={[originCoord, destCoord]}
+            strokeColor={Colors.emerald600}
+            strokeWidth={6}
           />
-          {/* User position */}
-          <Circle cx={SCREEN_WIDTH / 2} cy={500} r={12} fill={Colors.emerald600} stroke="white" strokeWidth={3} />
-        </Svg>
-      </View>
+        )}
+        <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />
+        <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />
+      </MapView>
 
       {/* Instruction Card */}
       <Animated.View
@@ -96,8 +175,19 @@ export default function NavigationScreen() {
           <Ionicons name="arrow-up-outline" size={36} color={Colors.white} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.instructionText}>Turn left onto Green Street</Text>
-          <Text style={styles.instructionSub}>In 120m</Text>
+          {firstStep ? (
+            <>
+              <Text style={styles.instructionText} numberOfLines={2}>{firstStep.instruction}</Text>
+              <Text style={styles.instructionSub}>
+                {firstStep.distanceM < 1000 ? `${firstStep.distanceM}m` : `${(firstStep.distanceM / 1000).toFixed(1)} km`}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.instructionText}>Head towards destination</Text>
+              <Text style={styles.instructionSub}>{state?.destAddress ?? 'Destination'}</Text>
+            </>
+          )}
         </View>
       </Animated.View>
 
@@ -105,50 +195,58 @@ export default function NavigationScreen() {
       <Animated.View
         style={[styles.modePill, { top: insets.top + 120, transform: [{ translateX: modeAnim }], opacity: modeOpacity }]}
       >
-        <Ionicons name="bicycle-outline" size={20} color={Colors.emerald600} />
-        <Text style={styles.modePillText}>Cycling</Text>
+        <Ionicons name={modeNavIcon(route?.mode ?? 'CYCLING')} size={20} color={Colors.emerald600} />
+        <Text style={styles.modePillText}>{modeLabel(route?.mode ?? 'CYCLING')}</Text>
       </Animated.View>
 
       {/* Bottom Panel */}
       <Animated.View
         style={[styles.bottomPanel, { paddingBottom: insets.bottom + 16, transform: [{ translateY: panelAnim }], opacity: panelOpacity }]}
       >
-        {/* Progress */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Route progress</Text>
-            <Text style={styles.progressValue}>{PROGRESS}%</Text>
+        {/* Route info */}
+        <View style={styles.routeInfoRow}>
+          <View style={styles.routeInfoItem}>
+            <Text style={styles.routeInfoValue}>{route?.durationMinutes ?? '—'} min</Text>
+            <Text style={styles.routeInfoLabel}>Duration</Text>
           </View>
-          <View style={styles.progressTrack}>
-            <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
+          <View style={styles.routeInfoDivider} />
+          <View style={styles.routeInfoItem}>
+            <Text style={styles.routeInfoValue}>{route ? `${route.distanceKm.toFixed(1)} km` : '—'}</Text>
+            <Text style={styles.routeInfoLabel}>Distance</Text>
           </View>
-        </View>
-
-        {/* Next Step */}
-        <View style={styles.nextStepBox}>
-          <Text style={styles.nextStepLabel}>Next step</Text>
-          <Text style={styles.nextStepText}>Continue on Green Street for 800m</Text>
+          <View style={styles.routeInfoDivider} />
+          <View style={styles.routeInfoItem}>
+            <Text style={[styles.routeInfoValue, { color: Colors.emerald600 }]}>+{route?.greenPoints ?? 0}</Text>
+            <Text style={styles.routeInfoLabel}>Points</Text>
+          </View>
         </View>
 
         {/* CO2 Counter */}
         <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.co2Box}>
           <View>
-            <Text style={styles.co2Label}>CO₂ saved so far</Text>
-            <Text style={styles.co2Value}>0.6 kg</Text>
+            <Text style={styles.co2Label}>CO₂ saved vs car</Text>
+            <Text style={styles.co2Value}>{co2SavedKg} kg</Text>
           </View>
           <Animated.View style={[styles.leafEmoji, { transform: [{ scale: leafScale }] }]}>
             <Text style={{ fontSize: 24 }}>🌱</Text>
           </Animated.View>
         </LinearGradient>
 
+        {/* Destination */}
+        <View style={styles.destBox}>
+          <Ionicons name="location-outline" size={16} color={Colors.red600} />
+          <Text style={styles.destText} numberOfLines={1}>{state?.destAddress ?? 'Destination'}</Text>
+        </View>
+
         {/* End Route */}
         <TouchableOpacity
-          style={styles.endBtn}
-          onPress={() => router.push('/trip-completed')}
+          style={[styles.endBtn, completing && { opacity: 0.7 }]}
+          onPress={handleEndRoute}
           activeOpacity={0.9}
+          disabled={completing}
         >
           <Ionicons name="close-outline" size={20} color={Colors.white} />
-          <Text style={styles.endBtnText}>End Route</Text>
+          <Text style={styles.endBtnText}>{completing ? 'Saving trip…' : 'End Route'}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -157,101 +255,47 @@ export default function NavigationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
-  mapArea: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-
-  // Instruction card
+  mapArea: { ...StyleSheet.absoluteFillObject },
   instructionCard: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 24,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+    position: 'absolute', left: 16, right: 16,
+    backgroundColor: Colors.white, borderRadius: 24,
+    padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16,
     ...Shadow.xl,
   },
   instructionIconBox: {
-    width: 64,
-    height: 64,
-    backgroundColor: Colors.emerald600,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+    width: 64, height: 64, backgroundColor: Colors.emerald600, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  instructionText: { color: '#1A1A1A', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  instructionSub: { color: Colors.gray600, fontSize: 16, fontWeight: '600' },
-
-  // Mode pill
+  instructionText: { color: '#1A1A1A', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  instructionSub: { color: Colors.gray600, fontSize: 15, fontWeight: '600' },
   modePill: {
-    position: 'absolute',
-    left: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    position: 'absolute', left: 16,
+    backgroundColor: Colors.white, borderRadius: 999,
+    paddingHorizontal: 16, paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     ...Shadow.md,
   },
   modePillText: { color: '#1A1A1A', fontWeight: '600', fontSize: 14 },
-
-  // Bottom panel
   bottomPanel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    gap: 16,
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 24, paddingTop: 20, gap: 14,
     ...Shadow.xl,
   },
-  progressSection: { gap: 8 },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressLabel: { color: Colors.gray600, fontSize: 14, fontWeight: '500' },
-  progressValue: { color: Colors.emerald600, fontSize: 14, fontWeight: '700' },
-  progressTrack: { height: 8, backgroundColor: Colors.gray200, borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: 8, backgroundColor: Colors.emerald600, borderRadius: 4 },
-
-  nextStepBox: { backgroundColor: Colors.gray50, borderRadius: 16, padding: 16 },
-  nextStepLabel: { color: Colors.gray600, fontSize: 13, marginBottom: 4 },
-  nextStepText: { color: '#1A1A1A', fontWeight: '600', fontSize: 15 },
-
-  co2Box: {
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: Colors.emerald100,
-  },
+  routeInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 4 },
+  routeInfoItem: { alignItems: 'center' },
+  routeInfoValue: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
+  routeInfoLabel: { fontSize: 12, color: Colors.gray500, marginTop: 2 },
+  routeInfoDivider: { width: 1, height: 32, backgroundColor: Colors.gray200 },
+  co2Box: { borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: Colors.emerald100 },
   co2Label: { color: Colors.gray600, fontSize: 13, marginBottom: 4 },
   co2Value: { color: Colors.emerald600, fontSize: 24, fontWeight: '700' },
-  leafEmoji: {
-    width: 48,
-    height: 48,
-    backgroundColor: Colors.emerald100,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
+  leafEmoji: { width: 48, height: 48, backgroundColor: Colors.emerald100, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  destBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.gray50, borderRadius: 12, padding: 12 },
+  destText: { flex: 1, color: '#1A1A1A', fontWeight: '500', fontSize: 14 },
   endBtn: {
-    backgroundColor: Colors.red600,
-    borderRadius: 20,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    backgroundColor: Colors.red600, borderRadius: 20, paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     ...Shadow.md,
   },
   endBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },

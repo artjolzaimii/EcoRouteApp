@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,27 +6,31 @@ import {
   ScrollView,
   StyleSheet,
   Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
 
-const user = {
-  name: 'Alex Morgan',
-  email: 'alex.morgan@email.com',
-  memberSince: 'January 2026',
-  level: 'Eco Champion',
-  rank: 'Top 5%',
-  totalImpact: '892 kg CO₂',
+type ProfileData = {
+  fullName: string;
+  email: string;
+  createdAt: string;
+  stats?: {
+    totalTrips: number;
+    totalDistanceKm: number;
+    totalCo2SavedG: number;
+    currentStreak: number;
+    longestStreak: number;
+    totalPoints: number;
+    badgeCount?: number;
+  };
+  userBadges?: { badge: { name: string } }[];
 };
-
-const stats = [
-  { label: 'Total Trips',   value: '687', icon: 'location-outline' as const, bg: Colors.emerald100, color: Colors.emerald600 },
-  { label: 'Achievements',  value: '24',  icon: 'trophy-outline'   as const, bg: Colors.yellow100,  color: Colors.yellow500  },
-  { label: 'Friends',       value: '42',  icon: 'people-outline'   as const, bg: Colors.blue100,    color: Colors.blue600    },
-];
 
 type MenuItem = {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -39,32 +43,93 @@ const menuSections: { title: string; items: MenuItem[] }[] = [
   {
     title: 'Account',
     items: [
-      { icon: 'person-outline',           label: 'Edit Profile',        route: '/edit-profile' },
-      { icon: 'notifications-outline',    label: 'Notifications',       toggle: true },
+      { icon: 'person-outline', label: 'Edit Profile', route: '/edit-profile' },
+      { icon: 'notifications-outline', label: 'Notifications', toggle: true },
       { icon: 'shield-checkmark-outline', label: 'Privacy & Security' },
     ],
   },
   {
     title: 'App Settings',
     items: [
-      { icon: 'location-outline',  label: 'Saved Routes',    route: '/saved-routes' },
-      { icon: 'settings-outline',  label: 'Preferences'       },
-      { icon: 'card-outline',      label: 'Payment Methods'   },
+      { icon: 'location-outline', label: 'Saved Routes', route: '/saved-routes' },
+      { icon: 'settings-outline', label: 'Preferences' },
+      { icon: 'card-outline', label: 'Payment Methods' },
     ],
   },
   {
     title: 'Community',
     items: [
-      { icon: 'people-outline',        label: 'Friends & Leaderboard' },
-      { icon: 'share-social-outline',  label: 'Invite Friends'        },
-      { icon: 'trophy-outline',        label: 'Challenges'            },
+      { icon: 'people-outline', label: 'Friends & Leaderboard' },
+      { icon: 'share-social-outline', label: 'Invite Friends' },
+      { icon: 'trophy-outline', label: 'Challenges' },
     ],
   },
 ];
 
+function gramsToKg(g: number): string {
+  return (g / 1000).toFixed(1);
+}
+
+function formatMemberSince(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { signOut, session } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const data = await api.get<ProfileData>('/api/user/profile');
+      setProfile(data);
+    } catch {
+      // silently fail — keep defaults
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const handleLogOut = async () => {
+    await signOut();
+    router.replace('/log-in');
+  };
+
+  const displayName = profile?.fullName ?? session?.user?.email?.split('@')[0] ?? 'You';
+  const displayEmail = profile?.email ?? session?.user?.email ?? '';
+  const totalCo2Kg = profile?.stats ? gramsToKg(profile.stats.totalCo2SavedG) : '0.0';
+  const memberSince = profile?.createdAt ? formatMemberSince(profile.createdAt) : '—';
+
+  const statCards = [
+    {
+      label: 'Total Trips',
+      value: String(profile?.stats?.totalTrips ?? 0),
+      icon: 'location-outline' as const,
+      bg: Colors.emerald100,
+      color: Colors.emerald600,
+    },
+    {
+      label: 'Achievements',
+      value: String(profile?.stats?.badgeCount ?? 0),
+      icon: 'trophy-outline' as const,
+      bg: Colors.yellow100,
+      color: Colors.yellow500,
+    },
+    {
+      label: 'Points',
+      value: String(profile?.stats?.totalPoints ?? 0),
+      icon: 'flash-outline' as const,
+      bg: Colors.blue100,
+      color: Colors.blue600,
+    },
+  ];
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -88,19 +153,24 @@ export default function ProfileScreen() {
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.profileCardTop}>
-            {/* Avatar */}
             <LinearGradient
               colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
               style={styles.avatar}
             >
-              <Ionicons name="person-outline" size={40} color={Colors.white} />
+              {loading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.avatarInitials}>
+                  {displayName.charAt(0).toUpperCase()}
+                </Text>
+              )}
             </LinearGradient>
 
             <View style={styles.profileInfo}>
               <View style={styles.profileNameRow}>
                 <View>
-                  <Text style={styles.profileName}>{user.name}</Text>
-                  <Text style={styles.profileEmail}>{user.email}</Text>
+                  <Text style={styles.profileName}>{displayName}</Text>
+                  <Text style={styles.profileEmail}>{displayEmail}</Text>
                 </View>
                 <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/edit-profile')}>
                   <Ionicons name="create-outline" size={20} color="rgba(255,255,255,0.8)" />
@@ -108,19 +178,21 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.profileBadges}>
                 <View style={styles.levelBadge}>
-                  <Text style={styles.levelBadgeText}>{user.level}</Text>
+                  <Text style={styles.levelBadgeText}>Eco Member</Text>
                 </View>
-                <View style={styles.rankBadge}>
-                  <Ionicons name="trending-up-outline" size={12} color="rgba(253,224,71,1)" />
-                  <Text style={styles.rankBadgeText}>{user.rank}</Text>
-                </View>
+                {(profile?.stats?.currentStreak ?? 0) > 0 && (
+                  <View style={styles.rankBadge}>
+                    <Ionicons name="flame-outline" size={12} color="rgba(253,224,71,1)" />
+                    <Text style={styles.rankBadgeText}>{profile!.stats!.currentStreak}d streak</Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
 
           <View style={styles.impactRow}>
             <Text style={styles.impactLabel}>Total Environmental Impact</Text>
-            <Text style={styles.impactValue}>{user.totalImpact}</Text>
+            <Text style={styles.impactValue}>{totalCo2Kg} kg CO₂</Text>
           </View>
         </View>
       </LinearGradient>
@@ -128,7 +200,7 @@ export default function ProfileScreen() {
       {/* Stats */}
       <View style={styles.statsWrap}>
         <View style={styles.statsRow}>
-          {stats.map((s) => (
+          {statCards.map((s) => (
             <View key={s.label} style={[styles.statCard, Shadow.lg, { backgroundColor: Colors.white }]}>
               <View style={[styles.statIconBox, { backgroundColor: s.bg }]}>
                 <Ionicons name={s.icon} size={20} color={s.color} />
@@ -186,16 +258,16 @@ export default function ProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.memberSinceLabel}>Member Since</Text>
-              <Text style={styles.memberSinceValue}>{user.memberSince}</Text>
+              <Text style={styles.memberSinceValue}>{memberSince}</Text>
               <Text style={styles.memberSinceSub}>
-                You've made a positive impact on the planet for over 2 months!
+                Keep making a positive impact on the planet!
               </Text>
             </View>
           </View>
         </LinearGradient>
 
         {/* Log Out */}
-        <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={() => router.replace('/log-in')}>
+        <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={handleLogOut}>
           <Ionicons name="log-out-outline" size={20} color={Colors.red600} />
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
@@ -212,8 +284,6 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.gray50 },
-
-  // Header
   header: { paddingHorizontal: 24, paddingBottom: 56, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -235,6 +305,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.4)',
   },
+  avatarInitials: { color: Colors.white, fontSize: 32, fontWeight: '700' },
   profileInfo: { flex: 1 },
   profileNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   profileName: { color: Colors.white, fontSize: 20, fontWeight: '700', marginBottom: 2 },
@@ -255,16 +326,12 @@ const styles = StyleSheet.create({
   impactRow: { paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' },
   impactLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, marginBottom: 4 },
   impactValue: { color: Colors.white, fontSize: 24, fontWeight: '700' },
-
-  // Stats
   statsWrap: { paddingHorizontal: 24, marginTop: -28, marginBottom: 24 },
   statsRow: { flexDirection: 'row', gap: 12 },
   statCard: { flex: 1, borderRadius: 16, padding: 16, alignItems: 'center', gap: 6 },
   statIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   statValue: { color: Colors.gray900, fontWeight: '700', fontSize: 18 },
   statLabel: { color: Colors.gray500, fontSize: 11, textAlign: 'center' },
-
-  // Menu
   menuWrap: { paddingHorizontal: 24, gap: 24, paddingBottom: 16 },
   menuSection: { gap: 8 },
   menuSectionTitle: {
@@ -281,16 +348,12 @@ const styles = StyleSheet.create({
   menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuItemIconBox: { width: 40, height: 40, backgroundColor: Colors.gray100, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   menuItemLabel: { color: Colors.gray900, fontWeight: '500', fontSize: 15 },
-
-  // Member since
   memberCard: { borderRadius: 16, padding: 24 },
   memberRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
   memberIconBox: { width: 56, height: 56, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   memberSinceLabel: { color: Colors.emeraldText100, fontSize: 13, marginBottom: 4 },
   memberSinceValue: { color: Colors.white, fontSize: 20, fontWeight: '700', marginBottom: 8 },
   memberSinceSub: { color: Colors.emeraldText100, fontSize: 13, lineHeight: 18 },
-
-  // Log out
   logoutBtn: {
     backgroundColor: Colors.white,
     borderRadius: 16,
@@ -302,8 +365,6 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
   },
   logoutText: { color: Colors.red600, fontWeight: '600', fontSize: 15 },
-
-  // Version
   versionWrap: { alignItems: 'center', paddingVertical: 16, gap: 4, marginBottom: 8 },
   versionText: { color: Colors.gray400, fontSize: 12 },
 });

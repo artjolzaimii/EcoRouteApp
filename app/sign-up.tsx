@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Animated,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -15,14 +17,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '@/context/AuthContext';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
 
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
+  const { signUp } = useAuth();
+
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
@@ -33,8 +44,31 @@ export default function SignUpScreen() {
     ]).start();
   }, []);
 
-  const handleSignUp = () => {
-    router.push('/email-verification');
+  const handleSignUp = async () => {
+    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
+      Alert.alert('Missing fields', 'Please fill in all fields.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Password mismatch', 'Passwords do not match.');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Weak password', 'Password must be at least 6 characters.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signUp(email.trim(), password, fullName.trim());
+      router.push('/email-verification');
+    } catch (err: any) {
+      Alert.alert('Sign up failed', err.message ?? 'An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -67,6 +101,8 @@ export default function SignUpScreen() {
               placeholderTextColor={Colors.gray400}
               autoCapitalize="words"
               returnKeyType="next"
+              value={fullName}
+              onChangeText={setFullName}
             />
           </View>
 
@@ -80,6 +116,8 @@ export default function SignUpScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               returnKeyType="next"
+              value={email}
+              onChangeText={setEmail}
             />
           </View>
 
@@ -93,6 +131,8 @@ export default function SignUpScreen() {
                 placeholderTextColor={Colors.gray400}
                 secureTextEntry={!showPassword}
                 returnKeyType="next"
+                value={password}
+                onChangeText={setPassword}
               />
               <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
@@ -110,6 +150,9 @@ export default function SignUpScreen() {
                 placeholderTextColor={Colors.gray400}
                 secureTextEntry={!showConfirm}
                 returnKeyType="done"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                onSubmitEditing={handleSignUp}
               />
               <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(!showConfirm)}>
                 <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
@@ -118,8 +161,17 @@ export default function SignUpScreen() {
           </View>
 
           {/* Sign Up Button */}
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleSignUp} activeOpacity={0.9}>
-            <Text style={styles.primaryBtnText}>Sign Up</Text>
+          <TouchableOpacity
+            style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+            onPress={handleSignUp}
+            activeOpacity={0.9}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={Colors.white} />
+            ) : (
+              <Text style={styles.primaryBtnText}>Sign Up</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -197,6 +249,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     ...Shadow.md,
   },
+  primaryBtnDisabled: { opacity: 0.7 },
   primaryBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 20 },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.gray200 },

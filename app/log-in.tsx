@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Animated,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -15,13 +17,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '@/context/AuthContext';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
 
 export default function LogInScreen() {
   const insets = useSafeAreaInsets();
+  const { signIn } = useAuth();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
@@ -32,8 +41,21 @@ export default function LogInScreen() {
     ]).start();
   }, []);
 
-  const handleLogIn = () => {
-    router.replace('/(tabs)');
+  const handleLogIn = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Missing fields', 'Please enter your email and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signIn(email.trim(), password);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      Alert.alert('Login failed', err.message ?? 'Please check your credentials and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -67,6 +89,8 @@ export default function LogInScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               returnKeyType="next"
+              value={email}
+              onChangeText={setEmail}
             />
           </View>
 
@@ -80,6 +104,9 @@ export default function LogInScreen() {
                 placeholderTextColor={Colors.gray400}
                 secureTextEntry={!showPassword}
                 returnKeyType="done"
+                value={password}
+                onChangeText={setPassword}
+                onSubmitEditing={handleLogIn}
               />
               <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
@@ -91,8 +118,17 @@ export default function LogInScreen() {
           </View>
 
           {/* Log In Button */}
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleLogIn} activeOpacity={0.9}>
-            <Text style={styles.primaryBtnText}>Log In</Text>
+          <TouchableOpacity
+            style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+            onPress={handleLogIn}
+            activeOpacity={0.9}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={Colors.white} />
+            ) : (
+              <Text style={styles.primaryBtnText}>Log In</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -172,6 +208,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     ...Shadow.md,
   },
+  primaryBtnDisabled: { opacity: 0.7 },
   primaryBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 20 },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.gray200 },

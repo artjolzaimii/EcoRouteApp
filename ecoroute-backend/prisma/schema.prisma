@@ -1,0 +1,330 @@
+// EcoRoute Prisma Schema — Supabase PostgreSQL
+// Run: npx prisma generate && npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TripMode {
+  WALKING
+  CYCLING
+  TRANSIT
+  CYCLING_TRANSIT
+  EV
+}
+
+enum TripStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum PartnerCategory {
+  FOOD
+  RETAIL
+  TRANSPORT
+  FITNESS
+  WELLNESS
+  ENTERTAINMENT
+  OTHER
+}
+
+enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+  FREE_ITEM
+}
+
+enum EarnType {
+  TRIP_COMPLETE
+  STREAK
+  BADGE
+  REFERRAL
+  ADMIN_GRANT
+  COUPON_REDEEM
+  PARTNER_VISIT
+}
+
+enum ConditionType {
+  MIN_DISTANCE_KM
+  MIN_TRIPS
+  STREAK_DAYS
+  SPECIFIC_MODE
+  FIRST_TRIP
+  PARTNER_VISIT
+}
+
+enum PointsLedgerType {
+  EARN
+  REDEEM
+  ADJUSTMENT
+  EXPIRE
+}
+
+// ─────────────────────────────────────────────
+// Profile
+// ─────────────────────────────────────────────
+
+model Profile {
+  id         String   @id @default(cuid())
+  authUserId String   @unique @map("auth_user_id") // Supabase auth.users UUID
+  email      String   @unique
+  fullName   String   @map("full_name")
+  avatarUrl  String?  @map("avatar_url")
+  role       Role     @default(USER)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  stats          UserStats?
+  trips          Trip[]
+  userCoupons    UserCoupon[]
+  userBadges     UserBadge[]
+  pointsLedger   PointsLedger[]
+  notifications  Notification[]
+
+  @@map("profiles")
+}
+
+// ─────────────────────────────────────────────
+// UserStats
+// ─────────────────────────────────────────────
+
+model UserStats {
+  id                String   @id @default(cuid())
+  profileId         String   @unique @map("profile_id")
+  totalPoints       Int      @default(0) @map("total_points")
+  totalTrips        Int      @default(0) @map("total_trips")
+  totalDistanceKm   Decimal  @default(0) @map("total_distance_km") @db.Decimal(10, 2)
+  totalCo2SavedG    Int      @default(0) @map("total_co2_saved_g")  // grams
+  currentStreak     Int      @default(0) @map("current_streak")
+  longestStreak     Int      @default(0) @map("longest_streak")
+  lastTripAt        DateTime? @map("last_trip_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("user_stats")
+}
+
+// ─────────────────────────────────────────────
+// Trip
+// ─────────────────────────────────────────────
+
+model Trip {
+  id              String     @id @default(cuid())
+  profileId       String     @map("profile_id")
+  mode            TripMode
+  status          TripStatus @default(ACTIVE)
+  originLat       Decimal    @map("origin_lat") @db.Decimal(10, 7)
+  originLng       Decimal    @map("origin_lng") @db.Decimal(10, 7)
+  destLat         Decimal    @map("dest_lat") @db.Decimal(10, 7)
+  destLng         Decimal    @map("dest_lng") @db.Decimal(10, 7)
+  originAddress   String     @map("origin_address")
+  destAddress     String     @map("dest_address")
+  distanceKm      Decimal    @map("distance_km") @db.Decimal(10, 2)
+  durationMinutes Int        @map("duration_minutes")
+  co2SavedG       Int        @default(0) @map("co2_saved_g")      // grams saved vs car
+  co2EmittedG     Int        @default(0) @map("co2_emitted_g")    // grams emitted
+  ecoScore        Int        @default(0) @map("eco_score")         // 0-100
+  pointsEarned    Int        @default(0) @map("points_earned")
+  completedAt     DateTime?  @map("completed_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([completedAt])
+  @@map("trips")
+}
+
+// ─────────────────────────────────────────────
+// EcoPartner
+// ─────────────────────────────────────────────
+
+model EcoPartner {
+  id            String          @id @default(cuid())
+  name          String
+  description   String
+  category      PartnerCategory
+  status        PartnerStatus   @default(ACTIVE)
+  logoUrl       String?         @map("logo_url")
+  address       String
+  lat           Decimal         @db.Decimal(10, 7)
+  lng           Decimal         @db.Decimal(10, 7)
+  radiusMeters  Int             @default(500) @map("radius_meters")
+  websiteUrl    String?         @map("website_url")
+  pointsPerVisit Int            @default(0) @map("points_per_visit")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  coupons   Coupon[]
+  analytics PartnerAnalytics[]
+
+  @@map("eco_partners")
+}
+
+// ─────────────────────────────────────────────
+// Coupon
+// ─────────────────────────────────────────────
+
+model Coupon {
+  id              String       @id @default(cuid())
+  partnerId       String       @map("partner_id")
+  title           String
+  description     String
+  discountType    DiscountType @map("discount_type")
+  discountValue   Decimal      @map("discount_value") @db.Decimal(10, 2)
+  pointsCost      Int          @default(0) @map("points_cost")
+  conditionType   ConditionType? @map("condition_type")
+  conditionValue  String?      @map("condition_value")  // JSON-serialised value
+  totalStock      Int?         @map("total_stock")
+  issuedCount     Int          @default(0) @map("issued_count")
+  expiresAt       DateTime?    @map("expires_at")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  partner     EcoPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  userCoupons UserCoupon[]
+
+  @@map("coupons")
+}
+
+// ─────────────────────────────────────────────
+// UserCoupon
+// ─────────────────────────────────────────────
+
+model UserCoupon {
+  id          String    @id @default(cuid())
+  profileId   String    @map("profile_id")
+  couponId    String    @map("coupon_id")
+  code        String    @unique
+  redeemedAt  DateTime? @map("redeemed_at")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  coupon  Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("user_coupons")
+}
+
+// ─────────────────────────────────────────────
+// Badge
+// ─────────────────────────────────────────────
+
+model Badge {
+  id              String        @id @default(cuid())
+  name            String        @unique
+  description     String
+  iconUrl         String?       @map("icon_url")
+  conditionType   ConditionType @map("condition_type")
+  conditionValue  String        @map("condition_value") // JSON
+  pointsReward    Int           @default(0) @map("points_reward")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+// ─────────────────────────────────────────────
+// UserBadge
+// ─────────────────────────────────────────────
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  badgeId   String   @map("badge_id")
+  earnedAt  DateTime @default(now()) @map("earned_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  badge   Badge   @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, badgeId])
+  @@map("user_badges")
+}
+
+// ─────────────────────────────────────────────
+// PointsLedger  (append-only)
+// ─────────────────────────────────────────────
+
+model PointsLedger {
+  id          String           @id @default(cuid())
+  profileId   String           @map("profile_id")
+  type        PointsLedgerType
+  earnType    EarnType?        @map("earn_type")
+  delta       Int              // positive = earn, negative = redeem/expire
+  balanceAfter Int             @map("balance_after")
+  description String
+  refId       String?          @map("ref_id")  // tripId, couponId, badgeId, etc.
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([createdAt])
+  @@map("points_ledger")
+}
+
+// ─────────────────────────────────────────────
+// PartnerAnalytics
+// ─────────────────────────────────────────────
+
+model PartnerAnalytics {
+  id          String   @id @default(cuid())
+  partnerId   String   @map("partner_id")
+  date        DateTime @db.Date
+  pinViews    Int      @default(0) @map("pin_views")
+  pinClicks   Int      @default(0) @map("pin_clicks")
+  couponsIssued Int    @default(0) @map("coupons_issued")
+  couponsRedeemed Int  @default(0) @map("coupons_redeemed")
+
+  partner EcoPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, date])
+  @@map("partner_analytics")
+}
+
+// ─────────────────────────────────────────────
+// Notification
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  title     String
+  body      String
+  isRead    Boolean  @default(false) @map("is_read")
+  refType   String?  @map("ref_type")  // badge | coupon | trip | points
+  refId     String?  @map("ref_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, isRead])
+  @@map("notifications")
+}

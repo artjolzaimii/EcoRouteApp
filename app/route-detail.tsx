@@ -12,71 +12,54 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
-import Svg, { Path, Rect, Defs, Pattern } from 'react-native-svg';
+import { routeStore } from '@/lib/routeStore';
+import { RouteStep } from '@/lib/types';
+
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { decodePolyline } from '@/lib/polyline';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
-type Step = {
-  id: number;
-  icon: IoniconName;
-  instruction: string;
-  distance: string;
-  duration: string;
-  co2: string;
-  zeroCO2: boolean;
-  iconBg: string;
-  iconColor: string;
-};
+function stepIcon(mode: string): { icon: IoniconName; bg: string; color: string } {
+  switch (mode.toUpperCase()) {
+    case 'WALKING': return { icon: 'walk-outline', bg: Colors.blue100, color: Colors.blue600 };
+    case 'CYCLING': return { icon: 'bicycle-outline', bg: Colors.emerald100, color: Colors.emerald600 };
+    case 'TRANSIT':
+    case 'BUS': return { icon: 'bus-outline', bg: Colors.purple100, color: Colors.purple600 };
+    case 'TRAIN':
+    case 'SUBWAY': return { icon: 'train-outline', bg: Colors.purple100, color: Colors.purple600 };
+    case 'EV':
+    case 'DRIVING': return { icon: 'car-outline', bg: Colors.amber100, color: Colors.amber700 };
+    default: return { icon: 'navigate-outline', bg: Colors.gray100, color: Colors.gray600 };
+  }
+}
 
-const routeSteps: Step[] = [
-  {
-    id: 1,
-    icon: 'walk-outline',
-    instruction: 'Walk to Green Street Station',
-    distance: '280m',
-    duration: '4 min',
-    co2: '0g',
-    zeroCO2: true,
-    iconBg: Colors.blue100,
-    iconColor: Colors.blue600,
-  },
-  {
-    id: 2,
-    icon: 'bicycle-outline',
-    instruction: 'Cycle via Eco Lane',
-    distance: '3.2 km',
-    duration: '12 min',
-    co2: '0g',
-    zeroCO2: true,
-    iconBg: Colors.emerald100,
-    iconColor: Colors.emerald600,
-  },
-  {
-    id: 3,
-    icon: 'train-outline',
-    instruction: 'Metro Line 2 — 2 stops',
-    distance: '1.8 km',
-    duration: '6 min',
-    co2: '45g',
-    zeroCO2: false,
-    iconBg: Colors.purple100,
-    iconColor: Colors.purple600,
-  },
-  {
-    id: 4,
-    icon: 'walk-outline',
-    instruction: 'Walk to destination',
-    distance: '150m',
-    duration: '2 min',
-    co2: '0g',
-    zeroCO2: true,
-    iconBg: Colors.blue100,
-    iconColor: Colors.blue600,
-  },
-];
+function formatDistance(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m}m`;
+}
+
+function formatDuration(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
+}
 
 export default function RouteDetailScreen() {
   const insets = useSafeAreaInsets();
+  const state = routeStore.get();
+  const route = state ? state.routes[state.selectedIndex] : null;
+  const polylineCoords = route?.polyline ? decodePolyline(route.polyline) : [];
+
+  const originCoord = state ? { latitude: state.originLat, longitude: state.originLng } : null;
+  const destCoord = state ? { latitude: state.destLat, longitude: state.destLng } : null;
+  const midLat = state ? (state.originLat + state.destLat) / 2 : 37.7749;
+  const midLng = state ? (state.originLng + state.destLng) / 2 : -122.4194;
+  const initialRegion = {
+    latitude: midLat,
+    longitude: midLng,
+    latitudeDelta: state ? Math.abs(state.originLat - state.destLat) * 2 + 0.01 : 0.05,
+    longitudeDelta: state ? Math.abs(state.originLng - state.destLng) * 2 + 0.01 : 0.05,
+  };
 
   return (
     <View style={styles.container}>
@@ -84,36 +67,20 @@ export default function RouteDetailScreen() {
 
       {/* Map Area */}
       <View style={styles.mapArea}>
-        {/* Gradient background */}
-        <LinearGradient
-          colors={[Colors.emerald50, '#eff6ff']}
+        <MapView
           style={StyleSheet.absoluteFillObject}
-        />
+          provider={PROVIDER_GOOGLE}
+          initialRegion={initialRegion}
+          scrollEnabled={false}
+          zoomEnabled={false}
+        >
+          {polylineCoords.length > 1 && (
+            <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={4} />
+          )}
+          {originCoord && <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />}
+          {destCoord && <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />}
+        </MapView>
 
-        {/* Grid */}
-        <Svg style={StyleSheet.absoluteFillObject}>
-          <Defs>
-            <Pattern id="detail-grid" width={30} height={30} patternUnits="userSpaceOnUse">
-              <Path d="M 30 0 L 0 0 0 30" fill="none" stroke="#10b981" strokeWidth="0.5" opacity="0.2" />
-            </Pattern>
-          </Defs>
-          <Rect x={0} y={0} width={800} height={500} fill="url(#detail-grid)" />
-          {/* Route path */}
-          <Path
-            d="M 50 300 L 150 200 L 250 180 L 350 100"
-            stroke={Colors.emerald400}
-            strokeWidth="4"
-            fill="none"
-            strokeLinecap="round"
-            strokeDasharray="8 4"
-          />
-        </Svg>
-
-        {/* Start/End markers */}
-        <View style={[styles.marker, styles.markerStart]} />
-        <View style={[styles.marker, styles.markerEnd, { backgroundColor: Colors.red600 }]} />
-
-        {/* Back button */}
         <TouchableOpacity
           style={[styles.backBtn, { top: insets.top + 16 }]}
           onPress={() => router.back()}
@@ -128,59 +95,69 @@ export default function RouteDetailScreen() {
         <View style={styles.sheetHandle} />
 
         <ScrollView showsVerticalScrollIndicator={false} style={styles.sheetScroll}>
-          <Text style={styles.sheetTitle}>Journey breakdown</Text>
+          <Text style={styles.sheetTitle}>
+            {route ? route.label : 'Journey breakdown'}
+          </Text>
 
-          {/* Steps */}
-          <View style={styles.stepsWrap}>
-            {routeSteps.map((step, index) => (
-              <View key={step.id} style={styles.stepRow}>
-                {/* Icon + connector */}
-                <View style={styles.stepLeft}>
-                  <View style={[styles.stepIconBox, { backgroundColor: step.iconBg }]}>
-                    <Ionicons name={step.icon} size={20} color={step.iconColor} />
+          {route && route.steps.length > 0 ? (
+            <View style={styles.stepsWrap}>
+              {route.steps.map((step: RouteStep, index: number) => {
+                const { icon, bg, color } = stepIcon(step.mode);
+                return (
+                  <View key={index} style={styles.stepRow}>
+                    <View style={styles.stepLeft}>
+                      <View style={[styles.stepIconBox, { backgroundColor: bg }]}>
+                        <Ionicons name={icon} size={20} color={color} />
+                      </View>
+                      {index < route.steps.length - 1 && <View style={styles.stepConnector} />}
+                    </View>
+                    <View style={styles.stepContent}>
+                      <Text style={styles.stepInstruction}>{step.instruction}</Text>
+                      <Text style={styles.stepMeta}>
+                        {formatDistance(step.distanceM)} • {formatDuration(step.durationS)}
+                      </Text>
+                    </View>
                   </View>
-                  {index < routeSteps.length - 1 && <View style={styles.stepConnector} />}
-                </View>
-
-                {/* Content */}
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepInstruction}>{step.instruction}</Text>
-                  <Text style={styles.stepMeta}>{step.distance} • {step.duration}</Text>
-                  <View style={[styles.co2Badge, { backgroundColor: step.zeroCO2 ? Colors.emerald100 : Colors.gray100 }]}>
-                    <Text style={[styles.co2BadgeText, { color: step.zeroCO2 ? Colors.emerald700 : Colors.gray600 }]}>
-                      {step.co2} CO₂
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.noSteps}>
+              <Text style={styles.noStepsText}>No step-by-step breakdown available for this route.</Text>
+            </View>
+          )}
 
           {/* Summary */}
-          <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.summaryBox}>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Ionicons name="leaf-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                <Text style={styles.summaryValue}>45g</Text>
-                <Text style={styles.summaryLabel}>Total CO₂</Text>
+          {route && (
+            <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.summaryBox}>
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryItem}>
+                  <Ionicons name="leaf-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
+                  <Text style={styles.summaryValue}>{route.co2Grams}g</Text>
+                  <Text style={styles.summaryLabel}>CO₂</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Ionicons name="time-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
+                  <Text style={styles.summaryValue}>{route.durationMinutes} min</Text>
+                  <Text style={styles.summaryLabel}>Duration</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Ionicons name="location-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
+                  <Text style={styles.summaryValue}>{route.distanceKm.toFixed(1)} km</Text>
+                  <Text style={styles.summaryLabel}>Distance</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Ionicons name="flash-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
+                  <Text style={styles.summaryValue}>+{route.greenPoints}</Text>
+                  <Text style={styles.summaryLabel}>Points</Text>
+                </View>
               </View>
-              <View style={styles.summaryItem}>
-                <Ionicons name="time-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                <Text style={styles.summaryValue}>24 min</Text>
-                <Text style={styles.summaryLabel}>Total Time</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Ionicons name="cash-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                <Text style={styles.summaryValue}>$2.50</Text>
-                <Text style={styles.summaryLabel}>Total Cost</Text>
-              </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          )}
 
           <View style={{ height: 24 }} />
         </ScrollView>
 
-        {/* Start Route Button */}
         <View style={[styles.footerWrap, { paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity
             style={styles.startBtn}
@@ -198,40 +175,16 @@ export default function RouteDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
-
-  // Map
-  mapArea: { height: '50%', position: 'relative', overflow: 'hidden' },
-  marker: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    backgroundColor: Colors.emerald600,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: Colors.white,
-    ...Shadow.md,
-  },
-  markerStart: { top: '75%', left: '12%' },
-  markerEnd: { top: '25%', right: '15%' },
+  mapArea: { height: '45%', position: 'relative', overflow: 'hidden' },
   backBtn: {
-    position: 'absolute',
-    left: 16,
-    width: 40,
-    height: 40,
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadow.md,
+    position: 'absolute', left: 16,
+    width: 40, height: 40, backgroundColor: Colors.white, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', ...Shadow.md,
   },
-
-  // Sheet
   sheet: { flex: 1, backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, marginTop: -24, ...Shadow.xl },
   sheetHandle: { width: 40, height: 4, backgroundColor: Colors.gray300, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
   sheetScroll: { flex: 1, paddingHorizontal: 24 },
   sheetTitle: { color: '#1A1A1A', fontSize: 20, fontWeight: '700', marginBottom: 16 },
-
-  // Steps
   stepsWrap: { gap: 0, marginBottom: 24 },
   stepRow: { flexDirection: 'row', gap: 16 },
   stepLeft: { alignItems: 'center' },
@@ -239,34 +192,19 @@ const styles = StyleSheet.create({
   stepConnector: { width: 1, flex: 1, backgroundColor: Colors.gray200, marginVertical: 4, minHeight: 32 },
   stepContent: { flex: 1, paddingBottom: 20 },
   stepInstruction: { color: '#1A1A1A', fontWeight: '600', fontSize: 15, marginBottom: 4 },
-  stepMeta: { color: Colors.gray600, fontSize: 13, marginBottom: 8 },
-  co2Badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  co2BadgeText: { fontSize: 12, fontWeight: '600' },
-
-  // Summary
-  summaryBox: { borderRadius: 20, padding: 16, borderWidth: 1, borderColor: Colors.emerald100 },
+  stepMeta: { color: Colors.gray600, fontSize: 13 },
+  noSteps: { paddingVertical: 24, alignItems: 'center' },
+  noStepsText: { color: Colors.gray500, fontSize: 14, textAlign: 'center' },
+  summaryBox: { borderRadius: 20, padding: 16, borderWidth: 1, borderColor: Colors.emerald100, marginBottom: 8 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-around' },
   summaryItem: { alignItems: 'center' },
   summaryIcon: { marginBottom: 4 },
-  summaryValue: { color: '#1A1A1A', fontWeight: '700', fontSize: 16 },
+  summaryValue: { color: '#1A1A1A', fontWeight: '700', fontSize: 15 },
   summaryLabel: { color: Colors.gray600, fontSize: 12, marginTop: 2 },
-
-  // Footer
-  footerWrap: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.gray100,
-  },
+  footerWrap: { paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.gray100 },
   startBtn: {
-    backgroundColor: Colors.emerald600,
-    borderRadius: 20,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    ...Shadow.lg,
+    backgroundColor: Colors.emerald600, borderRadius: 20, paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, ...Shadow.lg,
   },
   startBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
 });

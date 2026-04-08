@@ -1,52 +1,136 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Animated,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { api } from '@/lib/api';
 
-type RewardColor = 'amber' | 'green' | 'blue' | 'purple';
-
-const colorMap: Record<RewardColor, { bg: string; icon: string }> = {
-  amber:  { bg: Colors.amber100,  icon: Colors.amber600  },
-  green:  { bg: Colors.green100,  icon: Colors.green600  },
-  blue:   { bg: Colors.blue100,   icon: Colors.blue600   },
-  purple: { bg: Colors.purple100, icon: Colors.purple600 },
+type Coupon = {
+  id: string;
+  title: string;
+  description: string;
+  pointsCost: number;
+  discountValue: number;
+  discountType: string;
+  expiresAt: string | null;
+  partner: { id: string; name: string; logoUrl: string | null };
 };
 
-const userPoints = 2840;
-const nextReward = 3000;
+type UserCoupon = {
+  id: string;
+  code: string;
+  usedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  coupon: Coupon;
+};
 
-const rewards = [
-  { id: 1, name: 'Free Coffee',       partner: 'Starbucks',        points: 500,  color: 'amber'  as RewardColor, icon: 'cafe-outline'         as const, discount: '100% Off',      expiry: 'Valid for 30 days',   popular: true  },
-  { id: 2, name: '$10 Off Purchase',  partner: 'REI',              points: 800,  color: 'green'  as RewardColor, icon: 'bag-outline'          as const, discount: '$10 Off',       expiry: 'Valid for 60 days',   popular: true  },
-  { id: 3, name: 'Free Bike Tune-up', partner: 'Local Bike Shop',  points: 1200, color: 'blue'   as RewardColor, icon: 'bicycle-outline'      as const, discount: '$50 Value',     expiry: 'Valid for 90 days',   popular: false },
-  { id: 4, name: 'Premium Upgrade',   partner: 'EcoRoute Plus',    points: 2000, color: 'purple' as RewardColor, icon: 'flash-outline'        as const, discount: '3 Months Free', expiry: 'Instant activation',  popular: true  },
-];
+type CouponsData = {
+  available: Coupon[];
+  mine: UserCoupon[];
+};
 
-const redeemedRewards = [
-  { id: 101, name: 'Free Coffee',      partner: 'Starbucks',   redeemedDate: 'March 25, 2026', code: 'ECO-CF-9283', status: 'Active' },
-  { id: 102, name: '$5 Off Purchase',  partner: 'Whole Foods', redeemedDate: 'March 20, 2026', code: 'ECO-WF-7421', status: 'Used'   },
-];
+type UserStats = {
+  totalPoints: number;
+};
 
-const challenges = [
-  { title: 'Weekend Warrior',  description: 'Complete 5 eco-trips this weekend', reward: '+200 points', progress: 3,  total: 5  },
-  { title: 'Bike Champion',    description: 'Bike 50km this month',               reward: '+500 points', progress: 32, total: 50 },
+function formatDiscount(coupon: Coupon): string {
+  if (coupon.discountType === 'PERCENT') return `${coupon.discountValue}% Off`;
+  if (coupon.discountType === 'FIXED') return `$${coupon.discountValue} Off`;
+  if (coupon.discountType === 'FREE_ITEM') return 'Free Item';
+  return coupon.description?.split('.')[0] ?? 'Discount';
+}
+
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return 'No expiry';
+  const d = new Date(expiresAt);
+  const diffDays = Math.ceil((d.getTime() - Date.now()) / 86400000);
+  if (diffDays <= 0) return 'Expired';
+  if (diffDays === 1) return 'Expires tomorrow';
+  if (diffDays <= 30) return `Valid for ${diffDays} days`;
+  return `Valid until ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+const ICON_COLORS: { bg: string; icon: string }[] = [
+  { bg: Colors.amber100, icon: Colors.amber600 },
+  { bg: Colors.green100, icon: Colors.green600 },
+  { bg: Colors.blue100, icon: Colors.blue600 },
+  { bg: Colors.purple100, icon: Colors.purple600 },
 ];
 
 export default function RewardsScreen() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'available' | 'redeemed'>('available');
+  const [coupons, setCoupons] = useState<CouponsData>({ available: [], mine: [] });
+  const [userPoints, setUserPoints] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [redeeming, setRedeeming] = useState<string | null>(null);
 
-  const progressPct = (userPoints / nextReward) * 100;
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [couponsData, statsData] = await Promise.all([
+        api.get<CouponsData>('/api/coupons'),
+        api.get<UserStats>('/api/user/stats'),
+      ]);
+      setCoupons(couponsData);
+      setUserPoints(statsData.totalPoints ?? 0);
+    } catch {
+      // silently fail
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleRedeem = async (coupon: Coupon) => {
+    Alert.alert(
+      'Redeem Coupon',
+      `Spend ${coupon.pointsCost} points for "${coupon.title}" from ${coupon.partner.name}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Redeem',
+          style: 'default',
+          onPress: async () => {
+            setRedeeming(coupon.id);
+            try {
+              await api.post('/api/coupons/redeem', { couponId: coupon.id });
+              await loadData(); // refresh data
+              Alert.alert('Redeemed!', `Your coupon for ${coupon.partner.name} is ready in "My Rewards".`);
+            } catch (err: any) {
+              Alert.alert('Redemption failed', err.message ?? 'Could not redeem coupon.');
+            } finally {
+              setRedeeming(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Hardcoded challenges (could be backed by API later)
+  const challenges = [
+    { title: 'Weekend Warrior', description: 'Complete 5 eco-trips this weekend', reward: '+200 points', progress: 0, total: 5 },
+    { title: 'Bike Champion', description: 'Bike 50km this month', reward: '+500 points', progress: 0, total: 50 },
+  ];
+
+  const nextRewardThreshold = coupons.available.length > 0
+    ? Math.min(...coupons.available.map((c) => c.pointsCost))
+    : 500;
+
+  const progressPct = Math.min((userPoints / nextRewardThreshold) * 100, 100);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -63,7 +147,6 @@ export default function RewardsScreen() {
         </View>
         <Text style={styles.headerSub}>Redeem points for exclusive perks</Text>
 
-        {/* Points Card */}
         <View style={styles.pointsCard}>
           <View style={styles.pointsCardTop}>
             <View>
@@ -77,7 +160,9 @@ export default function RewardsScreen() {
           <View style={styles.pointsProgressWrap}>
             <View style={styles.progressLabelRow}>
               <Text style={styles.progressLabelText}>Next reward</Text>
-              <Text style={styles.progressLabelVal}>{(nextReward - userPoints).toLocaleString()} points away</Text>
+              <Text style={styles.progressLabelVal}>
+                {Math.max(nextRewardThreshold - userPoints, 0).toLocaleString()} points away
+              </Text>
             </View>
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${progressPct}%` as any }]} />
@@ -142,62 +227,69 @@ export default function RewardsScreen() {
       </View>
 
       {/* Content */}
-      {activeTab === 'available' ? (
+      {loading ? (
+        <ActivityIndicator color={Colors.purple600} style={{ marginTop: 40 }} />
+      ) : activeTab === 'available' ? (
         <View style={styles.rewardList}>
-          {rewards.map((reward) => {
-            const c = colorMap[reward.color];
-            const canAfford = userPoints >= reward.points;
-            return (
-              <View key={reward.id} style={[styles.rewardCard, !canAfford && styles.rewardCardDim]}>
-                <View style={styles.rewardCardInner}>
-                  <View style={[styles.rewardIconBox, { backgroundColor: c.bg }]}>
-                    <Ionicons name={reward.icon} size={28} color={c.icon} />
-                  </View>
-                  <View style={styles.rewardInfo}>
-                    <View style={styles.rewardInfoTop}>
-                      <View>
-                        <Text style={styles.rewardName}>{reward.name}</Text>
-                        <Text style={styles.rewardPartner}>{reward.partner}</Text>
-                      </View>
-                      {reward.popular && (
-                        <View style={styles.popularBadge}>
-                          <Ionicons name="star" size={10} color={Colors.yellow700} />
-                          <Text style={styles.popularText}>Popular</Text>
+          {coupons.available.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="gift-outline" size={48} color={Colors.gray300} />
+              <Text style={styles.emptyStateText}>No coupons available right now</Text>
+            </View>
+          ) : (
+            coupons.available.map((coupon, idx) => {
+              const canAfford = userPoints >= coupon.pointsCost;
+              const c = ICON_COLORS[idx % ICON_COLORS.length];
+              const isRedeemingThis = redeeming === coupon.id;
+              return (
+                <View key={coupon.id} style={[styles.rewardCard, !canAfford && styles.rewardCardDim]}>
+                  <View style={styles.rewardCardInner}>
+                    <View style={[styles.rewardIconBox, { backgroundColor: c.bg }]}>
+                      <Ionicons name="gift-outline" size={28} color={c.icon} />
+                    </View>
+                    <View style={styles.rewardInfo}>
+                      <View style={styles.rewardInfoTop}>
+                        <View>
+                          <Text style={styles.rewardName}>{coupon.title}</Text>
+                          <Text style={styles.rewardPartner}>{coupon.partner.name}</Text>
                         </View>
-                      )}
-                    </View>
-
-                    <View style={styles.rewardMeta}>
-                      <Text style={styles.discountText}>{reward.discount}</Text>
-                      <View style={styles.expiryRow}>
-                        <Ionicons name="time-outline" size={12} color={Colors.gray400} />
-                        <Text style={styles.expiryText}>{reward.expiry}</Text>
                       </View>
-                    </View>
 
-                    <View style={styles.rewardBottom}>
-                      <View style={styles.rewardPointsRow}>
-                        <Ionicons name="sparkles-outline" size={14} color={Colors.purple500} />
-                        <Text style={styles.rewardPointsText}>{reward.points} points</Text>
+                      <View style={styles.rewardMeta}>
+                        <Text style={styles.discountText}>{formatDiscount(coupon)}</Text>
+                        <View style={styles.expiryRow}>
+                          <Ionicons name="time-outline" size={12} color={Colors.gray400} />
+                          <Text style={styles.expiryText}>{formatExpiry(coupon.expiresAt)}</Text>
+                        </View>
                       </View>
-                      <TouchableOpacity
-                        style={[styles.redeemBtn, !canAfford && styles.redeemBtnLocked]}
-                        disabled={!canAfford}
-                        activeOpacity={0.85}
-                        onPress={() => router.push('/coupon-detail')}
-                      >
-                        <Text style={[styles.redeemBtnText, !canAfford && styles.redeemBtnTextLocked]}>
-                          {canAfford ? 'Redeem' : 'Locked'}
-                        </Text>
-                      </TouchableOpacity>
+
+                      <View style={styles.rewardBottom}>
+                        <View style={styles.rewardPointsRow}>
+                          <Ionicons name="sparkles-outline" size={14} color={Colors.purple500} />
+                          <Text style={styles.rewardPointsText}>{coupon.pointsCost} points</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.redeemBtn, (!canAfford || isRedeemingThis) && styles.redeemBtnLocked]}
+                          disabled={!canAfford || isRedeemingThis}
+                          activeOpacity={0.85}
+                          onPress={() => handleRedeem(coupon)}
+                        >
+                          {isRedeemingThis ? (
+                            <ActivityIndicator color={Colors.white} size="small" />
+                          ) : (
+                            <Text style={[styles.redeemBtnText, !canAfford && styles.redeemBtnTextLocked]}>
+                              {canAfford ? 'Redeem' : 'Locked'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })
+          )}
 
-          {/* Partner CTA */}
           <LinearGradient colors={[Colors.purple600, Colors.pink600]} style={styles.ctaCard}>
             <Text style={styles.ctaTitle}>Want more rewards?</Text>
             <Text style={styles.ctaSub}>Complete challenges and eco-trips to earn more points faster.</Text>
@@ -211,35 +303,47 @@ export default function RewardsScreen() {
         </View>
       ) : (
         <View style={styles.rewardList}>
-          {redeemedRewards.map((r) => (
-            <View key={r.id} style={styles.redeemedCard}>
-              <View style={styles.redeemedTop}>
-                <View>
-                  <Text style={styles.rewardName}>{r.name}</Text>
-                  <Text style={styles.rewardPartner}>{r.partner}</Text>
-                </View>
-                <View style={[styles.statusBadge, r.status === 'Active' ? styles.statusActive : styles.statusUsed]}>
-                  <Text style={[styles.statusText, r.status === 'Active' ? styles.statusTextActive : styles.statusTextUsed]}>
-                    {r.status}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.codeBox}>
-                <Text style={styles.codeBoxLabel}>Redemption Code</Text>
-                <Text style={styles.codeText}>{r.code}</Text>
-              </View>
-
-              <View style={styles.redeemedBottom}>
-                <Text style={styles.redeemedDate}>Redeemed: {r.redeemedDate}</Text>
-                {r.status === 'Active' && (
-                  <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/coupon-redeemed')}>
-                    <Text style={styles.useNowText}>Use Now</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+          {coupons.mine.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="receipt-outline" size={48} color={Colors.gray300} />
+              <Text style={styles.emptyStateText}>No redeemed coupons yet</Text>
             </View>
-          ))}
+          ) : (
+            coupons.mine.map((uc) => {
+              const isUsed = !!uc.usedAt;
+              return (
+                <View key={uc.id} style={styles.redeemedCard}>
+                  <View style={styles.redeemedTop}>
+                    <View>
+                      <Text style={styles.rewardName}>{uc.coupon.title}</Text>
+                      <Text style={styles.rewardPartner}>{uc.coupon.partner.name}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, isUsed ? styles.statusUsed : styles.statusActive]}>
+                      <Text style={[styles.statusText, isUsed ? styles.statusTextUsed : styles.statusTextActive]}>
+                        {isUsed ? 'Used' : 'Active'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.codeBox}>
+                    <Text style={styles.codeBoxLabel}>Redemption Code</Text>
+                    <Text style={styles.codeText}>{uc.code}</Text>
+                  </View>
+
+                  <View style={styles.redeemedBottom}>
+                    <Text style={styles.redeemedDate}>
+                      Redeemed: {new Date(uc.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </Text>
+                    {!isUsed && (
+                      <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/coupon-redeemed')}>
+                        <Text style={styles.useNowText}>Use Now</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })
+          )}
 
           <View style={{ height: 24 }} />
         </View>
@@ -250,8 +354,6 @@ export default function RewardsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.gray50 },
-
-  // Header
   header: { paddingHorizontal: 24, paddingBottom: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   headerTitle: { color: Colors.white, fontSize: 22, fontWeight: '700' },
@@ -267,22 +369,13 @@ const styles = StyleSheet.create({
   pointsCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   pointsCardLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 13, marginBottom: 4 },
   pointsValue: { color: Colors.white, fontSize: 36, fontWeight: '700' },
-  sparkleBox: {
-    width: 56,
-    height: 56,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  sparkleBox: { width: 56, height: 56, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   pointsProgressWrap: { gap: 8 },
   progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
   progressLabelText: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
   progressLabelVal: { color: Colors.white, fontWeight: '600', fontSize: 13 },
   progressTrack: { height: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: Colors.white, borderRadius: 4 },
-
-  // Challenges
   challengeWrap: { paddingHorizontal: 24, marginTop: -24 },
   card: { backgroundColor: Colors.white, borderRadius: 16, ...Shadow.xl },
   challengeCard: { padding: 20, marginBottom: 16 },
@@ -298,16 +391,12 @@ const styles = StyleSheet.create({
   challengeTrack: { flex: 1, height: 6, backgroundColor: Colors.gray100, borderRadius: 3, overflow: 'hidden' },
   challengeFill: { height: '100%', borderRadius: 3 },
   challengeProgress: { color: Colors.gray600, fontSize: 11, fontWeight: '500' },
-
-  // Tabs
   tabSelector: { paddingHorizontal: 24, marginBottom: 16 },
   tabBar: { flexDirection: 'row', backgroundColor: Colors.white, borderRadius: 12, padding: 4, ...Shadow.sm },
   tabBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
   tabBtnActive: { backgroundColor: Colors.purple600, ...Shadow.md },
   tabBtnText: { fontSize: 13, fontWeight: '600', color: Colors.gray600 },
   tabBtnTextActive: { color: Colors.white },
-
-  // Available rewards
   rewardList: { paddingHorizontal: 24, gap: 16 },
   rewardCard: { backgroundColor: Colors.white, borderRadius: 16, ...Shadow.lg, overflow: 'hidden' },
   rewardCardDim: { opacity: 0.6 },
@@ -317,16 +406,6 @@ const styles = StyleSheet.create({
   rewardInfoTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   rewardName: { color: Colors.gray900, fontWeight: '700', fontSize: 15, marginBottom: 2 },
   rewardPartner: { color: Colors.gray600, fontSize: 13 },
-  popularBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: Colors.yellow100,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  popularText: { color: Colors.yellow700, fontSize: 10, fontWeight: '600' },
   rewardMeta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
   discountText: { color: Colors.purple600, fontWeight: '700', fontSize: 17 },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -334,12 +413,10 @@ const styles = StyleSheet.create({
   rewardBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rewardPointsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rewardPointsText: { color: Colors.gray900, fontWeight: '600', fontSize: 14 },
-  redeemBtn: { backgroundColor: Colors.purple600, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  redeemBtn: { backgroundColor: Colors.purple600, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, minWidth: 72, alignItems: 'center' },
   redeemBtnLocked: { backgroundColor: Colors.gray200 },
   redeemBtnText: { color: Colors.white, fontWeight: '600', fontSize: 13 },
   redeemBtnTextLocked: { color: Colors.gray400 },
-
-  // CTA card
   ctaCard: { borderRadius: 16, padding: 24, marginTop: 8 },
   ctaTitle: { color: Colors.white, fontWeight: '700', fontSize: 17, marginBottom: 8 },
   ctaSub: { color: 'rgba(243,232,255,1)', fontSize: 13, lineHeight: 18, marginBottom: 16 },
@@ -354,8 +431,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   ctaBtnText: { color: Colors.purple600, fontWeight: '600', fontSize: 13 },
-
-  // Redeemed
   redeemedCard: { backgroundColor: Colors.white, borderRadius: 16, padding: 20, ...Shadow.lg },
   redeemedTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999 },
@@ -370,4 +445,6 @@ const styles = StyleSheet.create({
   redeemedBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   redeemedDate: { color: Colors.gray500, fontSize: 13 },
   useNowText: { color: Colors.purple600, fontWeight: '600', fontSize: 13 },
+  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 12 },
+  emptyStateText: { color: Colors.gray500, fontSize: 15 },
 });
