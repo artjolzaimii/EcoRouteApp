@@ -6,6 +6,7 @@ import { RouteSearch, PendingPlace, TripMode } from './types';
 
 let _state: RouteSearch | null = null;
 let _pendingDest: PendingPlace | null = null;
+let _pendingOrigin: PendingPlace | null = null;
 let _listeners: Array<() => void> = [];
 
 function notify() {
@@ -40,7 +41,7 @@ export const routeStore = {
     notify();
   },
 
-  // Pending destination — set by search screen, consumed by home/routes
+  // Pending destination — set by search screen, consumed by home
   setPendingDest: (place: PendingPlace | null) => {
     _pendingDest = place;
     notify();
@@ -53,6 +54,20 @@ export const routeStore = {
   },
 
   getPendingDest: (): PendingPlace | null => _pendingDest,
+
+  // Pending origin — set by search screen when user picks a custom "From"
+  setPendingOrigin: (place: PendingPlace | null) => {
+    _pendingOrigin = place;
+    notify();
+  },
+
+  consumePendingOrigin: (): PendingPlace | null => {
+    const d = _pendingOrigin;
+    _pendingOrigin = null;
+    return d;
+  },
+
+  getPendingOrigin: (): PendingPlace | null => _pendingOrigin,
 
   subscribe: (fn: () => void): (() => void) => {
     _listeners.push(fn);

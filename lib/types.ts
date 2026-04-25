@@ -1,4 +1,8 @@
-// Frontend types — mirror the backend's RouteOption and related shapes
+// Frontend types — existing + new EcoRoute types
+
+// ─────────────────────────────────────────────
+// Existing types (kept)
+// ─────────────────────────────────────────────
 
 export type TripMode =
   | 'CYCLING'
@@ -40,11 +44,11 @@ export type RouteOption = {
   distanceKm: number;
   durationMinutes: number;
   co2Grams: number;
-  co2SavedVsCar: number;  // grams saved vs car baseline
-  ecoScore: number;       // 0–100
+  co2SavedVsCar: number;
+  ecoScore: number;
   greenPoints: number;
   isRecommended: boolean;
-  polyline: string;       // encoded Google polyline string
+  polyline: string;
   steps: RouteStep[];
   nearbyPartners: NearbyPartner[];
 };
@@ -59,6 +63,8 @@ export type RouteSearch = {
   routes: RouteOption[];
   selectedIndex: number;
   preferredMode: TripMode;
+  // Optional: full EcoRoutesResponse when using the new API format
+  ecoResponse?: EcoRoutesResponse;
 };
 
 export type PendingPlace = {
@@ -66,3 +72,126 @@ export type PendingPlace = {
   lat: number;
   lng: number;
 };
+
+// ─────────────────────────────────────────────
+// New EcoRoute types (UPDATE 10)
+// ─────────────────────────────────────────────
+
+export type JourneyType = 'MICRO' | 'URBAN' | 'REGIONAL' | 'INTERCITY' | 'INTERNATIONAL';
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+  name?: string;
+}
+
+export interface CarbonBreakdownLeg {
+  mode: string;
+  distanceKm: number;
+  co2Grams: number;
+  instruction: string;
+}
+
+export interface PartnerPin {
+  id: string;
+  businessName: string;
+  category: string;
+  lat: number;
+  lng: number;
+  logoUrl: string | null;
+  distanceFromRouteM: number;
+  coupon: {
+    title: string;
+    discountType: string;
+    discountValue: number;
+    earnType: string;
+    pointsRequired: number;
+  } | null;
+}
+
+export interface EcoRoute {
+  mode: string;
+  subType?: string;
+  durationMin: number;
+  distanceKm: number;
+  co2Grams: number;
+  carEquivalentCO2: number;
+  savedVsCar: number;
+  carbonScore: number;
+  timeScore: number;
+  practicalityScore: number;
+  finalScore: number;
+  greenPoints: number;
+  recommended: boolean;
+  recommendationReason?: string;
+  transferCount?: number;
+  requiresBooking?: boolean;
+  bookingUrl?: string;
+  carbonBreakdown: CarbonBreakdownLeg[];
+  geometry?: string;
+  originStation?: string;
+  destStation?: string;
+  originAirport?: string;
+  destAirport?: string;
+  price?: number | null;
+  currency?: string;
+  dataSource?: string;
+  partnerStop?: {
+    partnerId: string;
+    partnerName: string;
+    vehicleType: string;
+    pickupLat: number;
+    pickupLng: number;
+    pickupAddress?: string;
+  };
+}
+
+export interface EcoRoutesResponse {
+  success: boolean;
+  journeyType: JourneyType;
+  distanceKm: number;
+  routes: EcoRoute[];
+  topRoute: EcoRoute & { partnerPins: PartnerPin[] };
+  carBaseline: {
+    co2Grams: number;
+    durationMin: number;
+  };
+  dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
+  dataQualityMessage: string;
+}
+
+export interface UserStats {
+  totalPoints: number;
+  lifetimePoints?: number;
+  totalTrips: number;
+  totalCo2SavedG: number;
+  totalKm?: number;
+  currentStreak?: number;
+  longestStreak?: number;
+}
+
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  conditionType: string;
+  conditionValue: number;
+  pointsReward: number;
+  earned: boolean;
+  earnedAt?: string;
+}
+
+export interface ImpactData {
+  totalCO2Saved: number;
+  totalTrips: number;
+  totalKm: number;
+  moneySavedEur?: number;
+  dailyBreakdown: Array<{
+    date: string;
+    co2Saved: number;
+    trips: number;
+  }>;
+  equivalentTrees?: number;
+  equivalentCarTrips?: number;
+}

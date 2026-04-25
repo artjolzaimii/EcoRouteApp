@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { gramsToCo2TreeDays, gramsToCarTripsAvoided } from "../services/carbon.service";
-import { daysAgo, toDateString } from "../utils/helpers";
+import { daysAgo, startOfDay, toDateString } from "../utils/helpers";
 import { DayImpact, ImpactSummary } from "../types";
 
 const router = Router();
@@ -66,6 +66,45 @@ async function buildImpactSummary(
     dailyBreakdown,
   };
 }
+
+// ─── GET /api/impact/today ────────────────────────────────────────────────────
+// Frontend: index.tsx (home screen header stats)
+
+router.get(
+  "/today",
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const profileId = req.user!.profileId;
+      const todayStart = startOfDay(new Date());
+
+      const trips = await prisma.trip.findMany({
+        where: {
+          profileId,
+          status: "COMPLETED",
+          completedAt: { gte: todayStart },
+        },
+        select: {
+          co2SavedG: true,
+          distanceKm: true,
+          pointsEarned: true,
+        },
+      });
+
+      const totalCo2SavedG = trips.reduce((s, t) => s + t.co2SavedG, 0);
+      const totalTrips     = trips.length;
+      const totalPoints    = trips.reduce((s, t) => s + t.pointsEarned, 0);
+      const totalDistanceKm = Math.round(trips.reduce((s, t) => s + Number(t.distanceKm), 0) * 100) / 100;
+
+      res.json({
+        success: true,
+        data: { totalCo2SavedG, totalTrips, totalPoints, totalDistanceKm },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── GET /api/impact/weekly ───────────────────────────────────────────────────
 // Frontend: impact.tsx (Week tab)

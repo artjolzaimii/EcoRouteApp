@@ -1,9 +1,9 @@
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/lib/api';
+import { getEcoRoutes, api } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
 import { routeStore } from '@/lib/routeStore';
-import { RouteOption, TripMode } from '@/lib/types';
+import { TripMode } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -52,7 +52,7 @@ const transportModes: TransportMode[] = [
 ];
 
 type EcoPartner = {
-  id: number;
+  id: string;
   name: string;
   logo: string;
   offer: string;
@@ -61,10 +61,29 @@ type EcoPartner = {
   points: number;
 };
 
-const staticPartners: EcoPartner[] = [
-  { id: 1, name: 'Green Coffee Co.', logo: '☕', offer: 'Free coffee', distance: '120m from route', description: 'Organic fair-trade coffee shop using 100% renewable energy', points: 50 },
-  { id: 2, name: 'EcoRide Bike Shop', logo: '🚴', offer: '10% off', distance: 'On your route', description: 'Local bike shop offering repairs and eco-friendly gear', points: 75 },
+const CATEGORY_EMOJI: Record<string, string> = {
+  FOOD: '☕', TRANSPORT: '🚴', FITNESS: '🏋️', WELLNESS: '🌿',
+  RETAIL: '🛍️', ENTERTAINMENT: '🎭', OTHER: '🏪',
+};
+
+const FALLBACK_PARTNERS: EcoPartner[] = [
+  { id: 'static-1', name: 'Green Coffee Co.', logo: '☕', offer: 'Free coffee', distance: '120m away', description: 'Organic fair-trade coffee shop using 100% renewable energy', points: 50 },
+  { id: 'static-2', name: 'EcoRide Bike Shop', logo: '🚴', offer: '10% off repairs', distance: 'On your route', description: 'Local bike shop offering repairs and eco-friendly gear', points: 75 },
 ];
+
+function mapApiPartner(p: any, index: number): EcoPartner {
+  const distM: number = p.distanceM ?? 0;
+  const distStr = distM < 1000 ? `${distM}m away` : `${(distM / 1000).toFixed(1)} km away`;
+  return {
+    id: p.id ?? `api-${index}`,
+    name: p.name,
+    logo: CATEGORY_EMOJI[p.category as string] ?? '🏪',
+    offer: p.activeCoupon?.title ?? 'Eco-certified partner',
+    distance: distStr,
+    description: p.address ?? p.category ?? 'Visit to earn green points',
+    points: p.pointsPerVisit ?? 0,
+  };
+}
 
 // Default region — will be replaced by user's real location
 const DEFAULT_REGION = {
@@ -95,6 +114,13 @@ export default function HomeScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
+  // Partners — loaded from API once location is known; falls back to static list
+  const [partners, setPartners] = useState<EcoPartner[]>(FALLBACK_PARTNERS);
+  const [partnersLoading, setPartnersLoading] = useState(false);
+
+  // Live stats for the header "Today's Impact" strip
+  const [userStats, setUserStats] = useState<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number } | null>(null);
+
   const mapRef = useRef<MapView>(null);
 
   // Load current location on mount
@@ -102,20 +128,39 @@ export default function HomeScreen() {
     loadCurrentLocation();
   }, []);
 
-  // Consume pending destination from the search screen on focus
+  // Load TODAY's stats on every focus so they refresh after a trip completes
   useFocusEffect(
     useCallback(() => {
-      const pending = routeStore.consumePendingDest();
-      if (pending) {
-        setDestAddress(pending.address);
-        setDestCoords({ lat: pending.lat, lng: pending.lng });
+      api.get<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number }>('/api/impact/today')
+        .then((data) => setUserStats(data))
+        .catch(() => {/* silently keep previous value */});
+    }, []),
+  );
+
+  // Consume pending origin / destination from the search screen on focus
+  useFocusEffect(
+    useCallback(() => {
+      const pendingOrigin = routeStore.consumePendingOrigin();
+      if (pendingOrigin) {
+        setOriginAddress(pendingOrigin.address);
+        setOriginCoords({ lat: pendingOrigin.lat, lng: pendingOrigin.lng });
+        const region = { latitude: pendingOrigin.lat, longitude: pendingOrigin.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 };
+        setMapRegion(region);
+        mapRef.current?.animateToRegion(region, 600);
+      }
+
+      const pendingDest = routeStore.consumePendingDest();
+      if (pendingDest) {
+        setDestAddress(pendingDest.address);
+        setDestCoords({ lat: pendingDest.lat, lng: pendingDest.lng });
 
         // Fit map to show both origin and destination
-        if (originCoords) {
-          const midLat = (originCoords.lat + pending.lat) / 2;
-          const midLng = (originCoords.lng + pending.lng) / 2;
-          const latDelta = Math.abs(originCoords.lat - pending.lat) * 1.6 + 0.01;
-          const lngDelta = Math.abs(originCoords.lng - pending.lng) * 1.6 + 0.01;
+        const oCoords = pendingOrigin ?? originCoords;
+        if (oCoords) {
+          const midLat = (oCoords.lat + pendingDest.lat) / 2;
+          const midLng = (oCoords.lng + pendingDest.lng) / 2;
+          const latDelta = Math.abs(oCoords.lat - pendingDest.lat) * 1.6 + 0.01;
+          const lngDelta = Math.abs(oCoords.lng - pendingDest.lng) * 1.6 + 0.01;
           const newRegion = { latitude: midLat, longitude: midLng, latitudeDelta: latDelta, longitudeDelta: lngDelta };
           setMapRegion(newRegion);
           mapRef.current?.animateToRegion(newRegion, 600);
@@ -135,9 +180,29 @@ export default function HomeScreen() {
         const region = { latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 };
         setMapRegion(region);
         mapRef.current?.animateToRegion(region, 600);
+
+        // Load nearby partners for current location (non-blocking)
+        loadNearbyPartners(loc.lat, loc.lng);
       }
     } finally {
       setLoadingLocation(false);
+    }
+  };
+
+  const loadNearbyPartners = async (lat: number, lng: number) => {
+    setPartnersLoading(true);
+    try {
+      const data = await api.get<{ partners: any[]; count: number }>(
+        `/api/partners/nearby?lat=${lat}&lng=${lng}&radiusMeters=2000`
+      );
+      if (data?.partners && data.partners.length > 0) {
+        setPartners(data.partners.map(mapApiPartner));
+      }
+      // If empty, keep the fallback list
+    } catch {
+      // API unavailable — fallback list stays
+    } finally {
+      setPartnersLoading(false);
     }
   };
 
@@ -160,35 +225,30 @@ export default function HomeScreen() {
       return;
     }
 
-    // Use origin coords if available, fall back to default (SF center)
     const oLat = originCoords?.lat ?? DEFAULT_REGION.latitude;
     const oLng = originCoords?.lng ?? DEFAULT_REGION.longitude;
 
     setLoadingRoutes(true);
     try {
-      const result = await api.post<{ routes: RouteOption[]; count: number; recommended: RouteOption | null }>(
-        '/api/routes',
-        {
-          originLat: oLat,
-          originLng: oLng,
-          destLat: destCoords.lat,
-          destLng: destCoords.lng,
-          originAddress,
-          destAddress,
-        },
+      const ecoResponse = await getEcoRoutes(
+        { lat: oLat, lng: oLng, name: originAddress },
+        { lat: destCoords.lat, lng: destCoords.lng, name: destAddress },
       );
 
-      if (!result.routes || result.routes.length === 0) {
+      if (!ecoResponse.routes || ecoResponse.routes.length === 0) {
         Alert.alert('No routes found', 'No eco-routes are available for this journey. Try a different destination.');
         return;
       }
 
-      // Find the best index matching the preferred mode
+      // Find best index — prefer selected mode, then recommended
       let bestIndex = 0;
-      const modeMatchIdx = result.routes.findIndex((r) => modeMatchesTripMode(selectedMode, r.mode));
+      const modeMatchIdx = ecoResponse.routes.findIndex((r: any) =>
+        modeMatchesTripMode(selectedMode, r.mode)
+      );
       if (modeMatchIdx !== -1) bestIndex = modeMatchIdx;
-      else if (result.routes.findIndex((r) => r.isRecommended) !== -1) {
-        bestIndex = result.routes.findIndex((r) => r.isRecommended);
+      else {
+        const recIdx = ecoResponse.routes.findIndex((r: any) => r.recommended);
+        if (recIdx !== -1) bestIndex = recIdx;
       }
 
       routeStore.set({
@@ -198,12 +258,12 @@ export default function HomeScreen() {
         destLng: destCoords.lng,
         originAddress,
         destAddress,
-        routes: result.routes,
+        routes: [] as any, // ecoResponse.routes stored in ecoResponse field
         selectedIndex: bestIndex,
         preferredMode: selectedMode,
+        ecoResponse,
       });
 
-      // Navigate to the Routes tab
       router.navigate('/(tabs)/routes');
     } catch (err: any) {
       Alert.alert('Could not get routes', err.message ?? 'Check your connection and try again.');
@@ -212,11 +272,11 @@ export default function HomeScreen() {
     }
   };
 
-  // Today's impact from session (static for now — profile screen already loads real data)
+  const co2Kg = userStats ? (userStats.totalCo2SavedG / 1000).toFixed(1) + ' kg' : '—';
   const headerStats = [
-    { icon: 'leaf-outline' as const, value: '—', label: 'CO₂ Saved' },
-    { icon: 'time-outline' as const, value: '—', label: 'Active Time' },
-    { icon: 'flash-outline' as const, value: '—', label: 'Points' },
+    { icon: 'leaf-outline' as const, value: co2Kg, label: 'CO₂ Saved' },
+    { icon: 'navigate-outline' as const, value: userStats ? String(userStats.totalTrips) : '—', label: 'Trips' },
+    { icon: 'flash-outline' as const, value: userStats ? String(userStats.totalPoints) : '—', label: 'Points' },
   ];
 
   const displayName = session?.user?.email?.split('@')[0] ?? 'there';
@@ -329,7 +389,7 @@ export default function HomeScreen() {
             {/* Route Inputs */}
             <View style={styles.inputsWrap}>
               {/* From */}
-              <TouchableOpacity style={styles.inputRow} onPress={loadCurrentLocation} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.inputRow} onPress={() => router.push('/search?field=origin')} activeOpacity={0.8}>
                 <View style={styles.inputDotGreen}>
                   <View style={styles.inputDotGreenInner} />
                 </View>
@@ -338,7 +398,14 @@ export default function HomeScreen() {
                     {loadingLocation ? 'Getting location…' : (originAddress || 'Current location')}
                   </Text>
                 </View>
-                {loadingLocation && <ActivityIndicator size="small" color={Colors.emerald600} style={{ marginLeft: 8 }} />}
+                {loadingLocation
+                  ? <ActivityIndicator size="small" color={Colors.emerald600} style={{ marginLeft: 8 }} />
+                  : (
+                    <TouchableOpacity onPress={loadCurrentLocation} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="navigate-outline" size={18} color={Colors.emerald600} />
+                    </TouchableOpacity>
+                  )
+                }
               </TouchableOpacity>
 
               <View style={styles.inputDivider} />
@@ -393,9 +460,10 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.rowBetween}>
             <Text style={styles.sectionTitle}>Eco Partners on Route</Text>
+            {partnersLoading && <ActivityIndicator size="small" color={Colors.emerald600} />}
           </View>
           <View style={styles.partnerListWrap}>
-            {staticPartners.map((partner) => (
+            {partners.map((partner) => (
               <TouchableOpacity
                 key={partner.id}
                 style={styles.partnerCard}

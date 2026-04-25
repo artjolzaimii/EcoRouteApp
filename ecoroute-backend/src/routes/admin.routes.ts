@@ -24,7 +24,7 @@ const AdjustPointsSchema = z.object({
 });
 
 const UpdatePartnerStatusSchema = z.object({
-  status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]),
+  status: z.enum(["ACTIVE", "SUSPENDED", "PENDING"]),
 });
 
 // ─── GET /api/admin/users ─────────────────────────────────────────────────────

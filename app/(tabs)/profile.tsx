@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -93,9 +93,10 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  // Reload whenever the screen comes back into focus (e.g. after a trip completes)
+  useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
   const handleLogOut = async () => {
     await signOut();

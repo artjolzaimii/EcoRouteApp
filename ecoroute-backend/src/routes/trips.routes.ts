@@ -4,7 +4,7 @@ import { TripMode } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody, validateQuery } from "../middleware/validate.middleware";
-import { calculateCarbon } from "../services/carbon.service";
+import { calculateCarbon, calculateGreenPoints } from "../services/carbon.service";
 import { awardPoints, updateStreak, checkAndAwardBadges } from "../services/points.service";
 import { EarnType } from "@prisma/client";
 
@@ -22,6 +22,10 @@ const CompleteTripSchema = z.object({
   destAddress: z.string().min(1).max(300),
   distanceKm: z.number().positive(),
   durationMinutes: z.number().int().positive(),
+  // Optional: frontend-computed CO2 data (more accurate than backend re-calculation).
+  // When provided, these take precedence for points calculation.
+  co2SavedGrams: z.number().nonnegative().optional(),
+  co2EmittedGrams: z.number().nonnegative().optional(),
 });
 
 const TripsQuerySchema = z.object({
@@ -42,7 +46,19 @@ router.post(
       const body = req.body as z.infer<typeof CompleteTripSchema>;
       const profileId = req.user!.profileId;
 
+      // Use legacy formula only for fallback CO2 data
       const carbon = calculateCarbon(body.mode, body.distanceKm, body.durationMinutes);
+
+      // Prefer frontend-provided CO2 values (they're computed from the actual route,
+      // including the correct mode — e.g. PLANE routes correctly have savedVsCar ≈ 0)
+      const co2SavedG   = body.co2SavedGrams   ?? carbon.savedVsCar;
+      const co2EmittedG = body.co2EmittedGrams  ?? carbon.co2Grams;
+
+      // Points = (CO2 saved in grams / 10) × mode multiplier — spec formula
+      const rawPoints = calculateGreenPoints(co2SavedG, body.mode);
+      // Cap per-trip points to prevent runaway awards from unrealistic distances
+      const MAX_TRIP_POINTS = 500;
+      const greenPoints = Math.min(rawPoints, MAX_TRIP_POINTS);
 
       // Create the trip record
       const trip = await prisma.trip.create({
@@ -56,12 +72,12 @@ router.post(
           destLng: body.destLng,
           originAddress: body.originAddress,
           destAddress: body.destAddress,
-          distanceKm: carbon.distanceKm,
-          durationMinutes: carbon.durationMinutes,
-          co2SavedG: carbon.savedVsCar,
-          co2EmittedG: carbon.co2Grams,
+          distanceKm: body.distanceKm,
+          durationMinutes: body.durationMinutes,
+          co2SavedG,
+          co2EmittedG,
           ecoScore: carbon.ecoScore,
-          pointsEarned: carbon.greenPoints,
+          pointsEarned: greenPoints,
           completedAt: new Date(),
         },
       });
@@ -72,20 +88,20 @@ router.post(
         create: {
           profileId,
           totalTrips: 1,
-          totalDistanceKm: carbon.distanceKm,
-          totalCo2SavedG: carbon.savedVsCar,
+          totalDistanceKm: body.distanceKm,
+          totalCo2SavedG: co2SavedG,
         },
         update: {
           totalTrips: { increment: 1 },
-          totalDistanceKm: { increment: carbon.distanceKm },
-          totalCo2SavedG: { increment: carbon.savedVsCar },
+          totalDistanceKm: { increment: body.distanceKm },
+          totalCo2SavedG: { increment: co2SavedG },
         },
       });
 
       // Award trip points
       const newBalance = await awardPoints(
         profileId,
-        carbon.greenPoints,
+        greenPoints,
         EarnType.TRIP_COMPLETE,
         `Trip completed: ${body.originAddress} → ${body.destAddress}`,
         trip.id
@@ -113,7 +129,7 @@ router.post(
         data: {
           profileId,
           title: "Trip Completed!",
-          body: `You earned ${carbon.greenPoints} green points and saved ${carbon.savedVsCar}g of CO₂.`,
+          body: `You earned ${greenPoints} green points and saved ${co2SavedG}g of CO₂.`,
           refType: "trip",
           refId: trip.id,
         },
@@ -123,8 +139,7 @@ router.post(
         success: true,
         data: {
           trip,
-          carbon,
-          pointsEarned: carbon.greenPoints,
+          pointsEarned: greenPoints,
           streakBonusPoints: streakResult.streakBonusPoints,
           newBalance: finalBalance,
           currentStreak: streakResult.currentStreak,

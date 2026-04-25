@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,31 +13,59 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { tripResultStore, TripResult } from '@/lib/tripResultStore';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
 
+function modeDisplay(mode: string): string {
+  switch (mode.toUpperCase()) {
+    case 'CYCLING':
+    case 'BICYCLING':    return 'Cycling';
+    case 'WALKING':      return 'Walking';
+    case 'TRANSIT':      return 'Transit';
+    case 'CYCLING_TRANSIT':
+    case 'MIXED':        return 'Cycling + Transit';
+    case 'TRAIN':        return 'Train';
+    case 'PLANE':        return 'Flight';
+    case 'EV':           return 'Electric Vehicle';
+    default:             return mode;
+  }
+}
+
 export default function TripCompletedScreen() {
   const insets = useSafeAreaInsets();
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-  const iconScale = useRef(new Animated.Value(0)).current;
+  // Consume the trip result once — keep a local copy for the lifetime of this screen
+  const [result] = useState<TripResult | null>(() => tripResultStore.consume());
+
+  const co2Kg      = result ? (result.co2SavedGrams / 1000).toFixed(2) : '0.00';
+  const points     = result?.pointsEarned ?? 0;
+  const bonus      = result?.streakBonusPoints ?? 0;
+  const totalPoints = points + bonus;
+  const distanceKm = result ? result.distanceKm.toFixed(1) : '—';
+  const duration   = result ? `${result.durationMinutes} min` : '—';
+  const modeText   = result ? modeDisplay(result.mode) : '—';
+
+  // Animations
+  const fadeAnim     = useRef(new Animated.Value(0)).current;
+  const slideAnim    = useRef(new Animated.Value(20)).current;
+  const iconScale    = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleSlide = useRef(new Animated.Value(20)).current;
-  const co2Scale = useRef(new Animated.Value(0.9)).current;
-  const co2Opacity = useRef(new Animated.Value(0)).current;
+  const titleSlide   = useRef(new Animated.Value(20)).current;
+  const co2Scale     = useRef(new Animated.Value(0.9)).current;
+  const co2Opacity   = useRef(new Animated.Value(0)).current;
   const pointsOpacity = useRef(new Animated.Value(0)).current;
-  const pointsSlide = useRef(new Animated.Value(20)).current;
+  const pointsSlide  = useRef(new Animated.Value(20)).current;
   const summaryOpacity = useRef(new Animated.Value(0)).current;
   const summarySlide = useRef(new Animated.Value(20)).current;
   const motiveOpacity = useRef(new Animated.Value(0)).current;
-  const btnsOpacity = useRef(new Animated.Value(0)).current;
-  const btnsSlide = useRef(new Animated.Value(20)).current;
+  const btnsOpacity  = useRef(new Animated.Value(0)).current;
+  const btnsSlide    = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
     ]).start();
 
@@ -50,14 +78,14 @@ export default function TripCompletedScreen() {
       Animated.delay(300),
       Animated.parallel([
         Animated.timing(titleOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(titleSlide, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(titleSlide,   { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
 
     Animated.sequence([
       Animated.delay(400),
       Animated.parallel([
-        Animated.spring(co2Scale, { toValue: 1, friction: 6, useNativeDriver: true }),
+        Animated.spring(co2Scale,   { toValue: 1, friction: 6, useNativeDriver: true }),
         Animated.timing(co2Opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
@@ -66,7 +94,7 @@ export default function TripCompletedScreen() {
       Animated.delay(500),
       Animated.parallel([
         Animated.timing(pointsOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(pointsSlide, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(pointsSlide,   { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
 
@@ -74,7 +102,7 @@ export default function TripCompletedScreen() {
       Animated.delay(600),
       Animated.parallel([
         Animated.timing(summaryOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(summarySlide, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(summarySlide,   { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
 
@@ -87,7 +115,7 @@ export default function TripCompletedScreen() {
       Animated.delay(800),
       Animated.parallel([
         Animated.timing(btnsOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(btnsSlide, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(btnsSlide,   { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
   }, []);
@@ -101,6 +129,7 @@ export default function TripCompletedScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+
           {/* Success Icon */}
           <Animated.View style={[styles.iconWrap, { transform: [{ scale: iconScale }] }]}>
             <View style={styles.iconCircle}>
@@ -117,9 +146,9 @@ export default function TripCompletedScreen() {
           <Animated.View style={[styles.co2Card, { transform: [{ scale: co2Scale }], opacity: co2Opacity }]}>
             <View style={styles.co2Row}>
               <Ionicons name="leaf" size={32} color={ECO_GREEN} />
-              <Text style={styles.co2Value}>1.2 kg</Text>
+              <Text style={styles.co2Value}>{co2Kg} kg</Text>
             </View>
-            <Text style={styles.co2Label}>CO₂ saved</Text>
+            <Text style={styles.co2Label}>CO₂ saved vs driving</Text>
           </Animated.View>
 
           {/* Points */}
@@ -127,9 +156,12 @@ export default function TripCompletedScreen() {
             <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.pointsBox}>
               <View style={styles.pointsRow}>
                 <Ionicons name="flash-outline" size={24} color={ECO_GREEN} />
-                <Text style={styles.pointsValue}>+85</Text>
+                <Text style={styles.pointsValue}>+{totalPoints}</Text>
               </View>
               <Text style={styles.pointsLabel}>Green Points earned</Text>
+              {bonus > 0 && (
+                <Text style={styles.bonusText}>Includes +{bonus} streak bonus 🔥</Text>
+              )}
             </LinearGradient>
           </Animated.View>
 
@@ -138,18 +170,18 @@ export default function TripCompletedScreen() {
             <View style={styles.summaryGrid}>
               <View style={styles.summaryItem}>
                 <Ionicons name="location-outline" size={20} color={Colors.gray600} style={styles.summaryIcon} />
-                <Text style={styles.summaryValue}>5.4 km</Text>
+                <Text style={styles.summaryValue}>{distanceKm} km</Text>
                 <Text style={styles.summaryItemLabel}>Distance</Text>
               </View>
               <View style={styles.summaryItem}>
                 <Ionicons name="time-outline" size={20} color={Colors.gray600} style={styles.summaryIcon} />
-                <Text style={styles.summaryValue}>24 min</Text>
+                <Text style={styles.summaryValue}>{duration}</Text>
                 <Text style={styles.summaryItemLabel}>Duration</Text>
               </View>
             </View>
             <View style={styles.modeRow}>
-              <Text style={styles.modeLabel}>Mode combination</Text>
-              <Text style={styles.modeValue}>Walk • Bike • Metro</Text>
+              <Text style={styles.modeLabel}>Transport mode</Text>
+              <Text style={styles.modeValue}>{modeText}</Text>
             </View>
           </Animated.View>
 
@@ -167,6 +199,7 @@ export default function TripCompletedScreen() {
               <Text style={styles.primaryBtnText}>Back to Home</Text>
             </TouchableOpacity>
           </Animated.View>
+
         </Animated.View>
       </ScrollView>
     </View>
@@ -180,50 +213,32 @@ const styles = StyleSheet.create({
 
   iconWrap: { marginBottom: 24 },
   iconCircle: {
-    width: 128,
-    height: 128,
-    backgroundColor: Colors.emerald600,
-    borderRadius: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadow.xl,
+    width: 128, height: 128, backgroundColor: Colors.emerald600, borderRadius: 64,
+    alignItems: 'center', justifyContent: 'center', ...Shadow.xl,
   },
 
   title: { color: '#1A1A1A', fontSize: 28, fontWeight: '700', marginBottom: 16 },
 
   co2Card: {
-    backgroundColor: Colors.white,
-    borderRadius: 28,
-    padding: 24,
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 16,
-    ...Shadow.lg,
+    backgroundColor: Colors.white, borderRadius: 28, padding: 24,
+    alignItems: 'center', width: '100%', marginBottom: 16, ...Shadow.lg,
   },
   co2Row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
   co2Value: { fontSize: 48, fontWeight: '700', color: Colors.emerald600 },
   co2Label: { color: Colors.gray600, fontSize: 17 },
 
   pointsBox: {
-    borderRadius: 20,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.emerald100,
-    marginBottom: 16,
-    width: '100%',
+    borderRadius: 20, padding: 16, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.emerald100, marginBottom: 16, width: '100%',
   },
   pointsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   pointsValue: { fontSize: 24, fontWeight: '700', color: Colors.emerald600 },
   pointsLabel: { color: Colors.gray600, fontSize: 15 },
+  bonusText: { color: Colors.emerald700, fontSize: 12, marginTop: 4, fontWeight: '500' },
 
   summaryCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    padding: 16,
-    width: '100%',
-    marginBottom: 16,
-    ...Shadow.md,
+    backgroundColor: Colors.white, borderRadius: 20, padding: 16,
+    width: '100%', marginBottom: 16, ...Shadow.md,
   },
   summaryGrid: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 },
   summaryItem: { alignItems: 'center' },
@@ -238,20 +253,13 @@ const styles = StyleSheet.create({
 
   btnsWrap: { width: '100%', gap: 12 },
   outlineBtn: {
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: ECO_GREEN,
+    backgroundColor: Colors.white, borderRadius: 20, paddingVertical: 16,
+    alignItems: 'center', borderWidth: 2, borderColor: ECO_GREEN,
   },
   outlineBtnText: { color: ECO_GREEN, fontWeight: '700', fontSize: 17 },
   primaryBtn: {
-    backgroundColor: ECO_GREEN,
-    borderRadius: 20,
-    paddingVertical: 16,
-    alignItems: 'center',
-    ...Shadow.md,
+    backgroundColor: ECO_GREEN, borderRadius: 20, paddingVertical: 16,
+    alignItems: 'center', ...Shadow.md,
   },
   primaryBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
 });

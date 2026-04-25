@@ -47,9 +47,34 @@ function formatDuration(s: number): string {
 export default function RouteDetailScreen() {
   const insets = useSafeAreaInsets();
   const state = routeStore.get();
-  const route = state ? state.routes[state.selectedIndex] : null;
-  const polylineCoords = route?.polyline ? decodePolyline(route.polyline) : [];
+  const selectedIndex = state?.selectedIndex ?? 0;
 
+  // Prefer new EcoRoute format; fall back to legacy RouteOption
+  const ecoRoute = state?.ecoResponse?.routes?.[selectedIndex];
+  const legacyRoute = !state?.ecoResponse ? state?.routes?.[selectedIndex] : undefined;
+
+  const routeLabel: string = ecoRoute
+    ? (ecoRoute.subType === 'CYCLING_TRANSIT' ? 'Cycling + Transit' : ecoRoute.mode)
+    : (legacyRoute?.label ?? 'Journey breakdown');
+
+  // Derive steps: EcoRoute uses carbonBreakdown; legacy has steps[]
+  const steps: RouteStep[] = ecoRoute?.carbonBreakdown?.map((leg) => ({
+    mode: leg.mode,
+    instruction: leg.instruction,
+    distanceM: Math.round(leg.distanceKm * 1000),
+    durationS: 0,
+  })) ?? legacyRoute?.steps ?? [];
+
+  const partnerStop = ecoRoute?.partnerStop ?? null;
+  const polylineStr: string = ecoRoute?.geometry ?? legacyRoute?.polyline ?? '';
+  const co2Grams: number = ecoRoute?.co2Grams ?? legacyRoute?.co2Grams ?? 0;
+  const durationMinutes: number = ecoRoute?.durationMin ?? legacyRoute?.durationMinutes ?? 0;
+  const distanceKm: number = ecoRoute?.distanceKm ?? legacyRoute?.distanceKm ?? 0;
+  const greenPoints: number = ecoRoute?.greenPoints ?? legacyRoute?.greenPoints ?? 0;
+
+  const polylineCoords = polylineStr ? decodePolyline(polylineStr) : [];
+
+  const hasRoute = !!(ecoRoute ?? legacyRoute);
   const originCoord = state ? { latitude: state.originLat, longitude: state.originLng } : null;
   const destCoord = state ? { latitude: state.destLat, longitude: state.destLng } : null;
   const midLat = state ? (state.originLat + state.destLat) / 2 : 37.7749;
@@ -79,6 +104,14 @@ export default function RouteDetailScreen() {
           )}
           {originCoord && <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />}
           {destCoord && <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />}
+          {partnerStop && (
+            <Marker
+              coordinate={{ latitude: partnerStop.pickupLat, longitude: partnerStop.pickupLng }}
+              title={partnerStop.partnerName}
+              description={`Pick up ${partnerStop.vehicleType.toLowerCase().replace('_', ' ')} here`}
+              pinColor="#10B981"
+            />
+          )}
         </MapView>
 
         <TouchableOpacity
@@ -96,12 +129,36 @@ export default function RouteDetailScreen() {
 
         <ScrollView showsVerticalScrollIndicator={false} style={styles.sheetScroll}>
           <Text style={styles.sheetTitle}>
-            {route ? route.label : 'Journey breakdown'}
+            {routeLabel}
           </Text>
 
-          {route && route.steps.length > 0 ? (
+          {partnerStop && (
+            <View style={styles.partnerCard}>
+              <View style={styles.partnerCardHeader}>
+                <View style={styles.partnerCardIcon}>
+                  <Ionicons name="bicycle-outline" size={20} color={Colors.emerald600} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.partnerCardTitle}>{partnerStop.partnerName}</Text>
+                  <Text style={styles.partnerCardSub}>
+                    Pick up {partnerStop.vehicleType.toLowerCase().replace('_', ' ')} — partner stop on route
+                  </Text>
+                </View>
+                <View style={styles.partnerCardBadge}>
+                  <Text style={styles.partnerCardBadgeText}>Partner</Text>
+                </View>
+              </View>
+              {partnerStop.pickupAddress && (
+                <Text style={styles.partnerCardAddress}>
+                  <Ionicons name="location-outline" size={12} color={Colors.gray500} /> {partnerStop.pickupAddress}
+                </Text>
+              )}
+            </View>
+          )}
+
+          {steps.length > 0 ? (
             <View style={styles.stepsWrap}>
-              {route.steps.map((step: RouteStep, index: number) => {
+              {steps.map((step: RouteStep, index: number) => {
                 const { icon, bg, color } = stepIcon(step.mode);
                 return (
                   <View key={index} style={styles.stepRow}>
@@ -109,12 +166,12 @@ export default function RouteDetailScreen() {
                       <View style={[styles.stepIconBox, { backgroundColor: bg }]}>
                         <Ionicons name={icon} size={20} color={color} />
                       </View>
-                      {index < route.steps.length - 1 && <View style={styles.stepConnector} />}
+                      {index < steps.length - 1 && <View style={styles.stepConnector} />}
                     </View>
                     <View style={styles.stepContent}>
                       <Text style={styles.stepInstruction}>{step.instruction}</Text>
                       <Text style={styles.stepMeta}>
-                        {formatDistance(step.distanceM)} • {formatDuration(step.durationS)}
+                        {formatDistance(step.distanceM)}{step.durationS > 0 ? ` • ${formatDuration(step.durationS)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -128,27 +185,27 @@ export default function RouteDetailScreen() {
           )}
 
           {/* Summary */}
-          {route && (
+          {hasRoute && (
             <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.summaryBox}>
               <View style={styles.summaryRow}>
                 <View style={styles.summaryItem}>
                   <Ionicons name="leaf-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{route.co2Grams}g</Text>
+                  <Text style={styles.summaryValue}>{co2Grams}g</Text>
                   <Text style={styles.summaryLabel}>CO₂</Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Ionicons name="time-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{route.durationMinutes} min</Text>
+                  <Text style={styles.summaryValue}>{durationMinutes} min</Text>
                   <Text style={styles.summaryLabel}>Duration</Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Ionicons name="location-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{route.distanceKm.toFixed(1)} km</Text>
+                  <Text style={styles.summaryValue}>{distanceKm.toFixed(1)} km</Text>
                   <Text style={styles.summaryLabel}>Distance</Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Ionicons name="flash-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>+{route.greenPoints}</Text>
+                  <Text style={styles.summaryValue}>+{greenPoints}</Text>
                   <Text style={styles.summaryLabel}>Points</Text>
                 </View>
               </View>
@@ -195,6 +252,24 @@ const styles = StyleSheet.create({
   stepMeta: { color: Colors.gray600, fontSize: 13 },
   noSteps: { paddingVertical: 24, alignItems: 'center' },
   noStepsText: { color: Colors.gray500, fontSize: 14, textAlign: 'center' },
+
+  partnerCard: {
+    backgroundColor: Colors.emerald50, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: Colors.emerald200, marginBottom: 20,
+  },
+  partnerCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  partnerCardIcon: {
+    width: 40, height: 40, backgroundColor: Colors.emerald100,
+    borderRadius: 20, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  partnerCardTitle: { color: '#1A1A1A', fontWeight: '700', fontSize: 15, marginBottom: 2 },
+  partnerCardSub: { color: Colors.gray600, fontSize: 12 },
+  partnerCardBadge: {
+    backgroundColor: Colors.emerald600, borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  partnerCardBadgeText: { color: Colors.white, fontSize: 10, fontWeight: '700' },
+  partnerCardAddress: { color: Colors.gray500, fontSize: 12, marginTop: 8, marginLeft: 52 },
   summaryBox: { borderRadius: 20, padding: 16, borderWidth: 1, borderColor: Colors.emerald100, marginBottom: 8 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-around' },
   summaryItem: { alignItems: 'center' },

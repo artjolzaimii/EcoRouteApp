@@ -1,4 +1,10 @@
-import React, { useState, useRef, useCallback } from 'react';
+import { Colors } from '@/constants/theme';
+import { searchPlacesAutocomplete, resolvePlaceId, PlacePrediction } from '@/lib/geocode';
+import { routeStore } from '@/lib/routeStore';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,51 +13,130 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
-import { searchPlaces, GeocodeResult } from '@/lib/geocode';
-import { routeStore } from '@/lib/routeStore';
+
+async function tryGetCurrentLocation(): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const Location = require('expo-location');
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  } catch {
+    return null;
+  }
+}
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ field?: string }>();
+
+  // 'origin' = searching for the From location; 'dest' (default) = searching for To
+  const field = params.field === 'origin' ? 'origin' : 'dest';
+
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GeocodeResult[]>([]);
+  const [results, setResults] = useState<PlacePrediction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [locLoading, setLocLoading] = useState(false);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<TextInput>(null);
+  const locationBiasRef = useRef<{ lat: number; lng: number } | undefined>(undefined);
+
+  // Static label for the non-active field
+  const state = routeStore.get();
+  const staticOriginLabel = state?.originAddress ?? 'Current location';
+  const staticDestLabel = state?.destAddress ?? 'Where to?';
+
+  useEffect(() => {
+    // Grab current location for autocomplete bias (non-blocking)
+    (async () => {
+      try {
+        const Location = require('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          locationBiasRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        }
+      } catch { /* ignore — bias is optional */ }
+    })();
+    // Small delay so the screen transition finishes before focus
+    const t = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleChangeText = useCallback((text: string) => {
     setQuery(text);
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (text.length < 3) {
-      setResults([]);
-      return;
-    }
-
+    if (text.trim().length < 2) { setResults([]); return; }
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const places = await searchPlaces(text);
+        const places = await searchPlacesAutocomplete(text, locationBiasRef.current);
         setResults(places);
       } finally {
         setLoading(false);
       }
-    }, 400);
+    }, 250);
   }, []);
 
-  const handleSelect = (place: GeocodeResult) => {
-    routeStore.setPendingDest({
-      address: place.formattedAddress,
-      lat: place.lat,
-      lng: place.lng,
-    });
-    router.back();
+  const handleSelect = async (prediction: PlacePrediction) => {
+    setSelectingId(prediction.placeId);
+    try {
+      let lat: number;
+      let lng: number;
+      let formattedAddress: string;
+
+      if (prediction.lat !== undefined && prediction.lng !== undefined) {
+        // Geocoding path — lat/lng already available, no extra call needed
+        lat = prediction.lat;
+        lng = prediction.lng;
+        formattedAddress = prediction.formattedAddress;
+      } else {
+        // Autocomplete path — resolve place_id to coordinates
+        const resolved = await resolvePlaceId(prediction.placeId, prediction.formattedAddress);
+        if (!resolved) {
+          Alert.alert('Could not resolve location', 'Please try a different result.');
+          return;
+        }
+        lat = resolved.lat;
+        lng = resolved.lng;
+        formattedAddress = resolved.formattedAddress;
+      }
+
+      // Build a clean display label
+      const displayAddress = prediction.secondaryText
+        ? `${prediction.mainText}, ${prediction.secondaryText}`
+        : formattedAddress;
+
+      if (field === 'origin') {
+        routeStore.setPendingOrigin({ address: displayAddress, lat, lng });
+      } else {
+        routeStore.setPendingDest({ address: displayAddress, lat, lng });
+      }
+      router.back();
+    } finally {
+      setSelectingId(null);
+    }
   };
+
+  const handleUseCurrentLocation = async () => {
+    setLocLoading(true);
+    try {
+      const loc = await tryGetCurrentLocation();
+      if (!loc) return;
+      const { reverseGeocode } = await import('@/lib/geocode');
+      const address = await reverseGeocode(loc.lat, loc.lng);
+      routeStore.setPendingOrigin({ address, lat: loc.lat, lng: loc.lng });
+      router.back();
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const isOriginField = field === 'origin';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -65,31 +150,55 @@ export default function SearchScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Input */}
+      {/* Search Inputs */}
       <View style={styles.inputsSection}>
+
+        {/* From row */}
         <View style={styles.inputRow}>
           <View style={styles.dotGreen}>
             <View style={styles.dotGreenInner} />
           </View>
-          <Text style={styles.locationInput}>Current location</Text>
+          {isOriginField ? (
+            <TextInput
+              ref={inputRef}
+              style={styles.activeInput}
+              placeholder="From where?"
+              placeholderTextColor={Colors.gray400}
+              value={query}
+              onChangeText={handleChangeText}
+              returnKeyType="search"
+            />
+          ) : (
+            <Text style={styles.staticLabel} numberOfLines={1}>{staticOriginLabel}</Text>
+          )}
+          {isOriginField && query.length > 0 && (
+            <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color={Colors.gray400} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.connector} />
 
+        {/* To row */}
         <View style={styles.inputRow}>
           <View style={styles.dotRed}>
             <Ionicons name="location-outline" size={16} color={Colors.red600} />
           </View>
-          <TextInput
-            style={styles.toInput}
-            placeholder="Where to?"
-            placeholderTextColor={Colors.gray400}
-            value={query}
-            onChangeText={handleChangeText}
-            autoFocus
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
+          {!isOriginField ? (
+            <TextInput
+              ref={inputRef}
+              style={styles.activeInput}
+              placeholder="Where to?"
+              placeholderTextColor={Colors.gray400}
+              value={query}
+              onChangeText={handleChangeText}
+              returnKeyType="search"
+            />
+          ) : (
+            <Text style={styles.staticLabel} numberOfLines={1}>{staticDestLabel}</Text>
+          )}
+          {!isOriginField && query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close-circle" size={18} color={Colors.gray400} />
             </TouchableOpacity>
@@ -99,6 +208,28 @@ export default function SearchScreen() {
 
       {/* Results */}
       <ScrollView style={styles.results} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
+        {/* "Use current location" shortcut — only when searching for origin */}
+        {isOriginField && (
+          <TouchableOpacity
+            style={styles.currentLocRow}
+            onPress={handleUseCurrentLocation}
+            activeOpacity={0.7}
+            disabled={locLoading}
+          >
+            <View style={[styles.listIconBox, styles.listIconBlue]}>
+              {locLoading
+                ? <ActivityIndicator size="small" color={Colors.emerald600} />
+                : <Ionicons name="navigate-outline" size={20} color={Colors.emerald600} />
+              }
+            </View>
+            <View style={styles.listText}>
+              <Text style={styles.listPrimary}>Use current location</Text>
+              <Text style={styles.listSecondary}>GPS — your exact position</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {loading && (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={Colors.emerald600} />
@@ -110,40 +241,51 @@ export default function SearchScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Results</Text>
             <View style={styles.listWrap}>
-              {results.map((item, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.listItem}
-                  onPress={() => handleSelect(item)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.listIconBox, styles.listIconGreen]}>
-                    <Ionicons name="location-outline" size={20} color={Colors.emerald600} />
-                  </View>
-                  <View style={styles.listText}>
-                    <Text style={styles.listPrimary} numberOfLines={1}>{item.formattedAddress}</Text>
-                    <Text style={styles.listSecondary}>
-                      {item.lat.toFixed(4)}, {item.lng.toFixed(4)}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
-                </TouchableOpacity>
-              ))}
+              {results.map((item) => {
+                const isResolving = selectingId === item.placeId;
+                return (
+                  <TouchableOpacity
+                    key={item.placeId}
+                    style={styles.listItem}
+                    onPress={() => handleSelect(item)}
+                    activeOpacity={0.7}
+                    disabled={selectingId !== null}
+                  >
+                    <View style={[styles.listIconBox, styles.listIconGreen]}>
+                      {isResolving
+                        ? <ActivityIndicator size="small" color={Colors.emerald600} />
+                        : <Ionicons name="location-outline" size={20} color={Colors.emerald600} />
+                      }
+                    </View>
+                    <View style={styles.listText}>
+                      <Text style={styles.listPrimary} numberOfLines={1}>{item.mainText}</Text>
+                      {item.secondaryText ? (
+                        <Text style={styles.listSecondary} numberOfLines={1}>{item.secondaryText}</Text>
+                      ) : null}
+                    </View>
+                    <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         )}
 
-        {!loading && query.length >= 3 && results.length === 0 && (
+        {!loading && query.trim().length >= 2 && results.length === 0 && (
           <View style={styles.noResults}>
             <Ionicons name="search-outline" size={40} color={Colors.gray300} />
             <Text style={styles.noResultsText}>No places found for "{query}"</Text>
           </View>
         )}
 
-        {query.length < 3 && (
+        {query.trim().length < 2 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Tip</Text>
-            <Text style={styles.tipText}>Type at least 3 characters to search for a destination.</Text>
+            <Text style={styles.tipText}>
+              {isOriginField
+                ? 'Type an address or use your current GPS location above.'
+                : 'Start typing to search for a destination.'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -162,11 +304,20 @@ const styles = StyleSheet.create({
   dotGreen: { width: 32, height: 32, backgroundColor: Colors.emerald100, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   dotGreenInner: { width: 12, height: 12, backgroundColor: Colors.emerald600, borderRadius: 6 },
   dotRed: { width: 32, height: 32, backgroundColor: Colors.red100, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  locationInput: { flex: 1, color: Colors.gray500, fontWeight: '500', fontSize: 15 },
-  toInput: { flex: 1, color: '#1A1A1A', fontSize: 15, paddingVertical: 0 },
+  activeInput: { flex: 1, color: '#1A1A1A', fontSize: 15, paddingVertical: 0 },
+  staticLabel: { flex: 1, color: Colors.gray500, fontWeight: '500', fontSize: 15 },
   connector: { height: 20, borderLeftWidth: 2, borderStyle: 'dashed', borderColor: Colors.gray200, marginLeft: 15, marginVertical: 4 },
 
   results: { flex: 1 },
+  currentLocRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray100,
+  },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 24 },
   loadingText: { color: Colors.gray500, fontSize: 14 },
 
@@ -176,6 +327,7 @@ const styles = StyleSheet.create({
   listItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderRadius: 12 },
   listIconBox: { width: 40, height: 40, backgroundColor: Colors.gray100, borderRadius: 20, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   listIconGreen: { backgroundColor: Colors.emerald50 },
+  listIconBlue: { backgroundColor: Colors.emerald50 },
   listText: { flex: 1 },
   listPrimary: { color: '#1A1A1A', fontWeight: '600', fontSize: 15, marginBottom: 2 },
   listSecondary: { color: Colors.gray500, fontSize: 12 },

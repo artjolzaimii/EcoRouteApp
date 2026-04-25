@@ -50,6 +50,20 @@ enum PartnerStatus {
   PENDING
 }
 
+enum PartnerType {
+  MOBILITY_PROVIDER
+  ECO_BUSINESS
+  @@map("partner_type")
+}
+
+enum VehicleType {
+  BICYCLE
+  EBIKE
+  ESCOOTER
+  CARGO_BIKE
+  @@map("vehicle_type")
+}
+
 enum DiscountType {
   PERCENTAGE
   FIXED
@@ -179,10 +193,51 @@ model EcoPartner {
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 
+  partnerType   PartnerType       @default(ECO_BUSINESS) @map("partner_type")
+
   coupons   Coupon[]
   analytics PartnerAnalytics[]
+  locations PartnerLocation[]
 
   @@map("eco_partners")
+}
+
+// ─────────────────────────────────────────────
+// PartnerLocation
+// ─────────────────────────────────────────────
+
+model PartnerLocation {
+  id            String       @id @default(cuid())
+  partnerId     String       @map("partner_id")
+  externalId    String?      @map("external_id")
+  name          String?
+  lat           Decimal      @db.Decimal(10, 7)
+  lng           Decimal      @db.Decimal(10, 7)
+  vehicleCount  Int?         @map("vehicle_count")
+  vehicleType   VehicleType? @map("vehicle_type")
+  isActive      Boolean      @default(true) @map("is_active")
+  lastSyncedAt  DateTime?    @map("last_synced_at")
+  partner       EcoPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, externalId])
+  @@map("partner_locations")
+}
+
+// ─────────────────────────────────────────────
+// Airport
+// ─────────────────────────────────────────────
+
+model Airport {
+  id           String  @id @default(cuid())
+  iataCode     String  @unique @map("iata_code")
+  name         String
+  city         String?
+  country      String?
+  latitudeDeg  String  @map("latitude_deg")
+  longitudeDeg String  @map("longitude_deg")
+  type         String
+
+  @@map("airports")
 }
 
 // ─────────────────────────────────────────────

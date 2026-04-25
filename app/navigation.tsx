@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
 import { routeStore } from '@/lib/routeStore';
+import { tripResultStore } from '@/lib/tripResultStore';
 import { decodePolyline } from '@/lib/polyline';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -43,13 +44,38 @@ function modeNavIcon(mode: string): React.ComponentProps<typeof Ionicons>['name'
   }
 }
 
+/** Map EcoRoute/mixed mode strings to valid Prisma TripMode enum values. */
+function toTripMode(mode: string): string {
+  switch (mode.toUpperCase()) {
+    case 'BICYCLING': return 'CYCLING';
+    case 'MIXED':     return 'CYCLING_TRANSIT';
+    case 'TRAIN':     return 'TRANSIT';
+    case 'PLANE':     return 'TRANSIT';
+    default:          return mode.toUpperCase();
+  }
+}
+
 export default function NavigationScreen() {
   const insets = useSafeAreaInsets();
   const [completing, setCompleting] = useState(false);
 
   const state = routeStore.get();
-  const route = state ? state.routes[state.selectedIndex] : null;
-  const polylineCoords = route?.polyline ? decodePolyline(route.polyline) : [];
+  const selectedIndex = state?.selectedIndex ?? 0;
+
+  // Support both new EcoRoute format and legacy RouteOption
+  const ecoRoute = state?.ecoResponse?.routes?.[selectedIndex];
+  const legacyRoute = !state?.ecoResponse ? state?.routes?.[selectedIndex] : undefined;
+
+  const routeMode: string   = ecoRoute?.mode ?? legacyRoute?.mode ?? 'CYCLING';
+  const partnerStop = ecoRoute?.partnerStop ?? null;
+  const distanceKm: number  = ecoRoute?.distanceKm ?? legacyRoute?.distanceKm ?? 0;
+  const durationMin: number = ecoRoute?.durationMin ?? legacyRoute?.durationMinutes ?? 0;
+  const greenPoints: number = ecoRoute?.greenPoints ?? legacyRoute?.greenPoints ?? 0;
+  const co2SavedG: number   = ecoRoute?.savedVsCar ?? legacyRoute?.co2SavedVsCar ?? 0;
+  const polylineStr: string = ecoRoute?.geometry ?? legacyRoute?.polyline ?? '';
+  const steps = legacyRoute?.steps ?? [];
+
+  const polylineCoords = polylineStr ? decodePolyline(polylineStr) : [];
 
   const originCoord = state
     ? { latitude: state.originLat, longitude: state.originLng }
@@ -67,9 +93,7 @@ export default function NavigationScreen() {
     longitudeDelta: Math.abs(originCoord.longitude - destCoord.longitude) * 2.5 + 0.01,
   };
 
-  const co2SavedKg = route
-    ? (route.co2SavedVsCar / 1000).toFixed(2)
-    : '0.00';
+  const co2SavedKg = (co2SavedG / 1000).toFixed(2);
 
   // Animations
   const instructionAnim = useRef(new Animated.Value(-120)).current;
@@ -104,7 +128,7 @@ export default function NavigationScreen() {
     ).start();
   }, []);
 
-  const firstStep = route?.steps?.[0];
+  const firstStep = steps[0];
 
   const handleEndRoute = async () => {
     Alert.alert('End Route?', 'Do you want to complete this trip and save your impact?', [
@@ -115,21 +139,50 @@ export default function NavigationScreen() {
         onPress: async () => {
           setCompleting(true);
           try {
-            if (state && route) {
-              await api.post('/api/trips/complete', {
-                mode: route.mode,
+            if (state) {
+              const res = await api.post<{
+                pointsEarned: number;
+                streakBonusPoints: number;
+                newBalance: number;
+                currentStreak: number;
+              }>('/api/trips/complete', {
+                mode: toTripMode(routeMode),
                 originLat: state.originLat,
                 originLng: state.originLng,
                 destLat: state.destLat,
                 destLng: state.destLng,
                 originAddress: state.originAddress,
                 destAddress: state.destAddress,
-                distanceKm: route.distanceKm,
-                durationMinutes: route.durationMinutes,
+                distanceKm,
+                durationMinutes: durationMin,
+                // Pass pre-computed CO2 so the backend uses the correct values
+                // (avoids wrong re-calculation when PLANE/TRAIN mapped to TRANSIT)
+                co2SavedGrams: co2SavedG,
+              });
+
+              tripResultStore.set({
+                co2SavedGrams: co2SavedG,
+                pointsEarned: res?.pointsEarned ?? greenPoints,
+                streakBonusPoints: res?.streakBonusPoints ?? 0,
+                newBalance: res?.newBalance ?? 0,
+                currentStreak: res?.currentStreak ?? 0,
+                distanceKm,
+                durationMinutes: durationMin,
+                mode: routeMode,
               });
             }
           } catch {
-            // Even if API fails, continue to trip-completed screen
+            // Even if API fails, store local data so the screen still shows something
+            tripResultStore.set({
+              co2SavedGrams: co2SavedG,
+              pointsEarned: greenPoints,
+              streakBonusPoints: 0,
+              newBalance: 0,
+              currentStreak: 0,
+              distanceKm,
+              durationMinutes: durationMin,
+              mode: routeMode,
+            });
           } finally {
             setCompleting(false);
             router.push('/trip-completed');
@@ -150,8 +203,10 @@ export default function NavigationScreen() {
         initialRegion={initialRegion}
         showsUserLocation
         showsMyLocationButton={false}
-        scrollEnabled={false}
-        zoomEnabled={false}
+        scrollEnabled
+        zoomEnabled
+        pitchEnabled
+        rotateEnabled
       >
         {polylineCoords.length > 1 ? (
           <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={6} />
@@ -165,6 +220,14 @@ export default function NavigationScreen() {
         )}
         <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />
         <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />
+        {partnerStop && (
+          <Marker
+            coordinate={{ latitude: partnerStop.pickupLat, longitude: partnerStop.pickupLng }}
+            title={partnerStop.partnerName}
+            description={`Pick up ${partnerStop.vehicleType.toLowerCase().replace('_', ' ')} here`}
+            pinColor="#10B981"
+          />
+        )}
       </MapView>
 
       {/* Instruction Card */}
@@ -195,8 +258,8 @@ export default function NavigationScreen() {
       <Animated.View
         style={[styles.modePill, { top: insets.top + 120, transform: [{ translateX: modeAnim }], opacity: modeOpacity }]}
       >
-        <Ionicons name={modeNavIcon(route?.mode ?? 'CYCLING')} size={20} color={Colors.emerald600} />
-        <Text style={styles.modePillText}>{modeLabel(route?.mode ?? 'CYCLING')}</Text>
+        <Ionicons name={modeNavIcon(routeMode)} size={20} color={Colors.emerald600} />
+        <Text style={styles.modePillText}>{modeLabel(routeMode)}</Text>
       </Animated.View>
 
       {/* Bottom Panel */}
@@ -206,17 +269,17 @@ export default function NavigationScreen() {
         {/* Route info */}
         <View style={styles.routeInfoRow}>
           <View style={styles.routeInfoItem}>
-            <Text style={styles.routeInfoValue}>{route?.durationMinutes ?? '—'} min</Text>
+            <Text style={styles.routeInfoValue}>{durationMin > 0 ? `${durationMin} min` : '—'}</Text>
             <Text style={styles.routeInfoLabel}>Duration</Text>
           </View>
           <View style={styles.routeInfoDivider} />
           <View style={styles.routeInfoItem}>
-            <Text style={styles.routeInfoValue}>{route ? `${route.distanceKm.toFixed(1)} km` : '—'}</Text>
+            <Text style={styles.routeInfoValue}>{distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '—'}</Text>
             <Text style={styles.routeInfoLabel}>Distance</Text>
           </View>
           <View style={styles.routeInfoDivider} />
           <View style={styles.routeInfoItem}>
-            <Text style={[styles.routeInfoValue, { color: Colors.emerald600 }]}>+{route?.greenPoints ?? 0}</Text>
+            <Text style={[styles.routeInfoValue, { color: Colors.emerald600 }]}>+{greenPoints}</Text>
             <Text style={styles.routeInfoLabel}>Points</Text>
           </View>
         </View>

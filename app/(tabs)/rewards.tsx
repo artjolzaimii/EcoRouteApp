@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
@@ -93,6 +93,9 @@ export default function RewardsScreen() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Reload on focus so points balance stays fresh after a trip or redemption
+  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const handleRedeem = async (coupon: Coupon) => {
     Alert.alert(
