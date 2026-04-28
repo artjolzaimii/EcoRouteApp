@@ -63,6 +63,9 @@ export interface ScoreResult {
     distanceKm: number;
     co2Grams: number;
     instruction: string;
+    polyline?: string;
+    startLocation?: { lat: number; lng: number };
+    endLocation?: { lat: number; lng: number };
   }>;
 }
 
@@ -85,6 +88,9 @@ export const scoreGoogleRoute = (
           distance: { value: number };
           duration: { value: number };
           html_instructions: string;
+          polyline?: { points: string };
+          start_location?: { lat: number; lng: number };
+          end_location?: { lat: number; lng: number };
           transit_details?: { line: { vehicle: { type: string } } };
         }>;
       }>;
@@ -151,6 +157,9 @@ export const scoreGoogleRoute = (
         distanceKm: Math.round(stepDistKm * 100) / 100,
         co2Grams: Math.round(stepCO2),
         instruction: step.html_instructions?.replace(/<[^>]+>/g, "") ?? "",
+        polyline: step.polyline?.points,
+        startLocation: step.start_location,
+        endLocation: step.end_location,
       });
     }
   }

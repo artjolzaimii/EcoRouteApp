@@ -6,6 +6,8 @@
 
 export type TripResult = {
   co2SavedGrams: number;
+  co2EmittedGrams: number;
+  carBaselineGrams: number;
   pointsEarned: number;
   streakBonusPoints: number;
   newBalance: number;

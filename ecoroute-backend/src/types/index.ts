@@ -63,6 +63,9 @@ export interface GoogleStep {
   distance: { value: number; text: string };
   duration: { value: number; text: string };
   html_instructions: string;
+  polyline?: { points: string };
+  start_location?: LatLng;
+  end_location?: LatLng;
   transit_details?: {
     line: { vehicle: { type: string } };
   };
@@ -123,6 +126,9 @@ export interface RouteStep {
   instruction: string;
   distanceM: number;
   durationS: number;
+  polyline?: string;
+  startLocation?: LatLng;
+  endLocation?: LatLng;
 }
 
 // ─────────────────────────────────────────────

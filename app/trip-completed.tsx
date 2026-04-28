@@ -6,6 +6,8 @@ import {
   ScrollView,
   StyleSheet,
   Animated,
+  Alert,
+  Share,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -13,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
+import { Co2TransparencyData } from '@/lib/co2Transparency';
 import { tripResultStore, TripResult } from '@/lib/tripResultStore';
 
 const CREAM = '#F1EFE8';
@@ -38,6 +42,7 @@ export default function TripCompletedScreen() {
 
   // Consume the trip result once — keep a local copy for the lifetime of this screen
   const [result] = useState<TripResult | null>(() => tripResultStore.consume());
+  const [co2SheetVisible, setCo2SheetVisible] = useState(false);
 
   const co2Kg      = result ? (result.co2SavedGrams / 1000).toFixed(2) : '0.00';
   const points     = result?.pointsEarned ?? 0;
@@ -46,6 +51,28 @@ export default function TripCompletedScreen() {
   const distanceKm = result ? result.distanceKm.toFixed(1) : '—';
   const duration   = result ? `${result.durationMinutes} min` : '—';
   const modeText   = result ? modeDisplay(result.mode) : '—';
+  const co2InfoData: Co2TransparencyData | null = result ? {
+    mode: result.mode,
+    distanceKm: result.distanceKm,
+    co2EmittedGrams: result.co2EmittedGrams,
+    co2SavedGrams: result.co2SavedGrams,
+    carBaselineGrams: result.carBaselineGrams,
+    greenPoints: result.pointsEarned,
+    emissionFactor: result.distanceKm > 0 ? Math.round((result.co2EmittedGrams / result.distanceKm) * 10) / 10 : 0,
+    pointMultiplier: result.co2SavedGrams > 0 ? Math.round((result.pointsEarned / (result.co2SavedGrams / 10)) * 10) / 10 : 0,
+  } : null;
+
+  const shareText = result
+    ? `I chose a greener route with EcoRoute 🌱\n\nMode: ${modeText}\nDistance: ${distanceKm} km\nCO₂ saved: ${co2Kg} kg\nGreen Points earned: +${totalPoints}`
+    : 'I chose a greener route with EcoRoute 🌱';
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: shareText });
+    } catch {
+      Alert.alert('Share unavailable', shareText);
+    }
+  };
 
   // Animations
   const fadeAnim     = useRef(new Animated.Value(0)).current;
@@ -149,6 +176,14 @@ export default function TripCompletedScreen() {
               <Text style={styles.co2Value}>{co2Kg} kg</Text>
             </View>
             <Text style={styles.co2Label}>CO₂ saved vs driving</Text>
+            <TouchableOpacity
+              style={styles.co2InfoBtn}
+              onPress={() => setCo2SheetVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="information-circle-outline" size={15} color={Colors.emerald700} />
+              <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+            </TouchableOpacity>
           </Animated.View>
 
           {/* Points */}
@@ -192,6 +227,10 @@ export default function TripCompletedScreen() {
 
           {/* Buttons */}
           <Animated.View style={[styles.btnsWrap, { opacity: btnsOpacity, transform: [{ translateY: btnsSlide }] }]}>
+            <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.9}>
+              <Ionicons name="share-social-outline" size={19} color={ECO_GREEN} />
+              <Text style={styles.shareBtnText}>Share</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.outlineBtn} onPress={() => router.push('/(tabs)/impact')} activeOpacity={0.9}>
               <Text style={styles.outlineBtnText}>View Impact</Text>
             </TouchableOpacity>
@@ -202,6 +241,11 @@ export default function TripCompletedScreen() {
 
         </Animated.View>
       </ScrollView>
+      <Co2TransparencySheet
+        visible={co2SheetVisible}
+        data={co2InfoData}
+        onClose={() => setCo2SheetVisible(false)}
+      />
     </View>
   );
 }
@@ -226,6 +270,8 @@ const styles = StyleSheet.create({
   co2Row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
   co2Value: { fontSize: 48, fontWeight: '700', color: Colors.emerald600 },
   co2Label: { color: Colors.gray600, fontSize: 17 },
+  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10 },
+  co2InfoText: { color: Colors.emerald700, fontSize: 12, fontWeight: '700' },
 
   pointsBox: {
     borderRadius: 20, padding: 16, alignItems: 'center',
@@ -252,6 +298,12 @@ const styles = StyleSheet.create({
   motive: { color: Colors.gray600, fontSize: 17, marginBottom: 24 },
 
   btnsWrap: { width: '100%', gap: 12 },
+  shareBtn: {
+    backgroundColor: Colors.white, borderRadius: 20, paddingVertical: 16,
+    alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
+    borderWidth: 1, borderColor: Colors.emerald200,
+  },
+  shareBtnText: { color: ECO_GREEN, fontWeight: '700', fontSize: 17 },
   outlineBtn: {
     backgroundColor: Colors.white, borderRadius: 20, paddingVertical: 16,
     alignItems: 'center', borderWidth: 2, borderColor: ECO_GREEN,

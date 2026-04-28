@@ -17,6 +17,9 @@ export type RouteStep = {
   instruction: string;
   distanceM: number;
   durationS: number;
+  polyline?: string;
+  startLocation?: LatLng;
+  endLocation?: LatLng;
 };
 
 export type NearbyPartner = {
@@ -90,6 +93,9 @@ export interface CarbonBreakdownLeg {
   distanceKm: number;
   co2Grams: number;
   instruction: string;
+  polyline?: string;
+  startLocation?: LatLng;
+  endLocation?: LatLng;
 }
 
 export interface PartnerPin {
