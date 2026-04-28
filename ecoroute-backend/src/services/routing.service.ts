@@ -29,7 +29,15 @@ export interface ScoredCandidate {
   savedVsCar: number;
   carbonScore: number;
   greenPoints: number;
-  carbonBreakdown: Array<{ mode: string; distanceKm: number; co2Grams: number; instruction: string }>;
+  carbonBreakdown: Array<{
+    mode: string;
+    distanceKm: number;
+    co2Grams: number;
+    instruction: string;
+    polyline?: string;
+    startLocation?: { lat: number; lng: number };
+    endLocation?: { lat: number; lng: number };
+  }>;
   transferCount?: number;
   requiresBooking?: boolean;
   bookingUrl?: string;
@@ -262,12 +270,16 @@ async function buildPartnerAssistedCandidates(
           distanceKm: leg1Km,
           co2Grams: leg1CO2,
           instruction: `Take train to ${stop.partnerName} (${leg1Km.toFixed(0)} km)`,
+          startLocation: origin,
+          endLocation: { lat: stop.pickupLat, lng: stop.pickupLng },
         },
         {
           mode: "CYCLING",
           distanceKm: leg2Km,
           co2Grams: 0,
           instruction: `Pick up ${vehicleLabel} at ${stop.locationName} — cycle ${leg2Km.toFixed(0)} km to destination`,
+          startLocation: { lat: stop.pickupLat, lng: stop.pickupLng },
+          endLocation: destination,
         },
       ],
       dataSource: "PARTNER",
@@ -296,8 +308,8 @@ export async function generateEcoRoutes(params: {
 }): Promise<EcoRoutesResponseData> {
   const { origin, destination, departureTime } = params;
 
-  // v2: invalidates all pre-partner-candidate cache entries
-  const cacheKey = `eco:v2:${routeCacheKey(origin.lat, origin.lng, destination.lat, destination.lng)}`;
+  // v3: invalidates cached route responses that may be missing train geometry
+  const cacheKey = `eco:v3:${routeCacheKey(origin.lat, origin.lng, destination.lat, destination.lng)}`;
   const cached = await cacheGet<EcoRoutesResponseData>(cacheKey);
   if (cached) {
     console.log(`[Routing] Cache HIT for ${cacheKey} — returning cached result (${cached.routes?.length ?? 0} routes)`);
@@ -346,6 +358,8 @@ export async function generateEcoRoutes(params: {
   ]);
 
   const candidates: ScoredCandidate[] = [];
+  let googleTransitGeometry = "";
+  let googleTransitBreakdown: ScoredCandidate["carbonBreakdown"] = [];
 
   for (const { mode, route } of googleResults) {
     if (!route) continue;
@@ -363,6 +377,11 @@ export async function generateEcoRoutes(params: {
       geometry: route.overview_polyline?.points ?? "",
       dataSource: "GOOGLE_MAPS",
     });
+
+    if (mode === "transit") {
+      googleTransitGeometry = route.overview_polyline?.points ?? "";
+      googleTransitBreakdown = scored.carbonBreakdown;
+    }
   }
 
   if (cyclingTransitResult) {
@@ -390,7 +409,17 @@ export async function generateEcoRoutes(params: {
         departureDate
       );
       if (trainOptions && trainOptions.length > 0) {
-        candidates.push(...(trainOptions as ScoredCandidate[]));
+        const trainCandidates = (trainOptions as ScoredCandidate[]).map((option) => {
+          const hasStepGeometry = option.carbonBreakdown.some((step) => step.polyline || (step.startLocation && step.endLocation));
+          return {
+            ...option,
+            geometry: option.geometry || googleTransitGeometry,
+            carbonBreakdown: hasStepGeometry || googleTransitBreakdown.length === 0
+              ? option.carbonBreakdown
+              : googleTransitBreakdown,
+          };
+        });
+        candidates.push(...trainCandidates);
         hasTrainData = true;
       }
     } catch {

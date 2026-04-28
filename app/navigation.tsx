@@ -1,11 +1,10 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Animated,
-  Dimensions,
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -14,14 +13,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { api } from '@/lib/api';
 import { routeStore } from '@/lib/routeStore';
 import { tripResultStore } from '@/lib/tripResultStore';
-import { decodePolyline } from '@/lib/polyline';
+import { co2DataFromRoute } from '@/lib/co2Transparency';
+import {
+  flattenRouteSegments,
+  getRouteMapSegments,
+  getTransitionMarkers,
+  routeModeIcon,
+  routeModeStyle,
+} from '@/lib/routeMap';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 function modeLabel(mode: string): string {
   switch (mode) {
@@ -57,7 +62,9 @@ function toTripMode(mode: string): string {
 
 export default function NavigationScreen() {
   const insets = useSafeAreaInsets();
+  const mapRef = useRef<MapView>(null);
   const [completing, setCompleting] = useState(false);
+  const [co2SheetVisible, setCo2SheetVisible] = useState(false);
 
   const state = routeStore.get();
   const selectedIndex = state?.selectedIndex ?? 0;
@@ -72,17 +79,34 @@ export default function NavigationScreen() {
   const durationMin: number = ecoRoute?.durationMin ?? legacyRoute?.durationMinutes ?? 0;
   const greenPoints: number = ecoRoute?.greenPoints ?? legacyRoute?.greenPoints ?? 0;
   const co2SavedG: number   = ecoRoute?.savedVsCar ?? legacyRoute?.co2SavedVsCar ?? 0;
-  const polylineStr: string = ecoRoute?.geometry ?? legacyRoute?.polyline ?? '';
-  const steps = legacyRoute?.steps ?? [];
+  const co2EmittedG: number = ecoRoute?.co2Grams ?? legacyRoute?.co2Grams ?? 0;
+  const carBaselineG: number = ecoRoute?.carEquivalentCO2 ?? co2SavedG + co2EmittedG;
+  const steps = legacyRoute?.steps ?? ecoRoute?.carbonBreakdown?.map((leg) => ({
+    mode: leg.mode,
+    instruction: leg.instruction,
+    distanceM: Math.round(leg.distanceKm * 1000),
+    durationS: 0,
+    polyline: leg.polyline,
+    startLocation: leg.startLocation,
+    endLocation: leg.endLocation,
+  })) ?? [];
 
-  const polylineCoords = polylineStr ? decodePolyline(polylineStr) : [];
-
-  const originCoord = state
-    ? { latitude: state.originLat, longitude: state.originLng }
-    : { latitude: 37.7749, longitude: -122.4194 };
-  const destCoord = state
-    ? { latitude: state.destLat, longitude: state.destLng }
-    : { latitude: 37.7849, longitude: -122.4094 };
+  const originLat = state?.originLat;
+  const originLng = state?.originLng;
+  const destLat = state?.destLat;
+  const destLng = state?.destLng;
+  const originCoord = useMemo(
+    () => originLat != null && originLng != null
+      ? { latitude: originLat, longitude: originLng }
+      : { latitude: 37.7749, longitude: -122.4194 },
+    [originLat, originLng],
+  );
+  const destCoord = useMemo(
+    () => destLat != null && destLng != null
+      ? { latitude: destLat, longitude: destLng }
+      : { latitude: 37.7849, longitude: -122.4094 },
+    [destLat, destLng],
+  );
 
   const midLat = (originCoord.latitude + destCoord.latitude) / 2;
   const midLng = (originCoord.longitude + destCoord.longitude) / 2;
@@ -92,6 +116,18 @@ export default function NavigationScreen() {
     latitudeDelta: Math.abs(originCoord.latitude - destCoord.latitude) * 2.5 + 0.01,
     longitudeDelta: Math.abs(originCoord.longitude - destCoord.longitude) * 2.5 + 0.01,
   };
+  const routeSegments = useMemo(
+    () => getRouteMapSegments(ecoRoute ?? legacyRoute, routeMode, originCoord, destCoord),
+    [
+      ecoRoute,
+      legacyRoute,
+      routeMode,
+      originCoord,
+      destCoord,
+    ],
+  );
+  const routeCoords = useMemo(() => flattenRouteSegments(routeSegments), [routeSegments]);
+  const transitionMarkers = useMemo(() => getTransitionMarkers(routeSegments), [routeSegments]);
 
   const co2SavedKg = (co2SavedG / 1000).toFixed(2);
 
@@ -128,6 +164,14 @@ export default function NavigationScreen() {
     ).start();
   }, []);
 
+  useEffect(() => {
+    if (routeCoords.length < 2 || !mapRef.current) return;
+    mapRef.current.fitToCoordinates(routeCoords, {
+      edgePadding: { top: 160, right: 48, bottom: 260, left: 48 },
+      animated: false,
+    });
+  }, [routeCoords]);
+
   const firstStep = steps[0];
 
   const handleEndRoute = async () => {
@@ -158,10 +202,14 @@ export default function NavigationScreen() {
                 // Pass pre-computed CO2 so the backend uses the correct values
                 // (avoids wrong re-calculation when PLANE/TRAIN mapped to TRANSIT)
                 co2SavedGrams: co2SavedG,
+                co2EmittedGrams: co2EmittedG,
+                greenPoints,
               });
 
               tripResultStore.set({
                 co2SavedGrams: co2SavedG,
+                co2EmittedGrams: co2EmittedG,
+                carBaselineGrams: carBaselineG,
                 pointsEarned: res?.pointsEarned ?? greenPoints,
                 streakBonusPoints: res?.streakBonusPoints ?? 0,
                 newBalance: res?.newBalance ?? 0,
@@ -175,6 +223,8 @@ export default function NavigationScreen() {
             // Even if API fails, store local data so the screen still shows something
             tripResultStore.set({
               co2SavedGrams: co2SavedG,
+              co2EmittedGrams: co2EmittedG,
+              carBaselineGrams: carBaselineG,
               pointsEarned: greenPoints,
               streakBonusPoints: 0,
               newBalance: 0,
@@ -198,6 +248,7 @@ export default function NavigationScreen() {
 
       {/* Full-screen map */}
       <MapView
+        ref={mapRef}
         style={styles.mapArea}
         provider={PROVIDER_GOOGLE}
         initialRegion={initialRegion}
@@ -208,18 +259,32 @@ export default function NavigationScreen() {
         pitchEnabled
         rotateEnabled
       >
-        {polylineCoords.length > 1 ? (
-          <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={6} />
-        ) : (
-          // Fallback straight line if no polyline
-          <Polyline
-            coordinates={[originCoord, destCoord]}
-            strokeColor={Colors.emerald600}
-            strokeWidth={6}
-          />
-        )}
+        {routeSegments.map((segment, index) => {
+          const style = routeModeStyle(segment.mode);
+          return (
+            <Polyline
+              key={`route-segment-${index}`}
+              coordinates={segment.coordinates}
+              strokeColor={style.strokeColor}
+              strokeWidth={style.strokeWidth}
+              lineDashPattern={style.lineDashPattern}
+              zIndex={10 + index}
+            />
+          );
+        })}
         <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />
         <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />
+        {transitionMarkers.map((marker, index) => (
+          <Marker key={`transition-${index}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.transitionMarker}>
+              <Ionicons
+                name={routeModeIcon(marker.mode) as React.ComponentProps<typeof Ionicons>['name']}
+                size={13}
+                color={Colors.white}
+              />
+            </View>
+          </Marker>
+        ))}
         {partnerStop && (
           <Marker
             coordinate={{ latitude: partnerStop.pickupLat, longitude: partnerStop.pickupLng }}
@@ -295,6 +360,15 @@ export default function NavigationScreen() {
           </Animated.View>
         </LinearGradient>
 
+        <TouchableOpacity
+          style={styles.co2InfoBtn}
+          onPress={() => setCo2SheetVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="information-circle-outline" size={15} color={Colors.emerald700} />
+          <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+        </TouchableOpacity>
+
         {/* Destination */}
         <View style={styles.destBox}>
           <Ionicons name="location-outline" size={16} color={Colors.red600} />
@@ -312,6 +386,11 @@ export default function NavigationScreen() {
           <Text style={styles.endBtnText}>{completing ? 'Saving trip…' : 'End Route'}</Text>
         </TouchableOpacity>
       </Animated.View>
+      <Co2TransparencySheet
+        visible={co2SheetVisible}
+        data={co2DataFromRoute(ecoRoute ?? legacyRoute)}
+        onClose={() => setCo2SheetVisible(false)}
+      />
     </View>
   );
 }
@@ -319,6 +398,17 @@ export default function NavigationScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
   mapArea: { ...StyleSheet.absoluteFillObject },
+  transitionMarker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.gray900,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.md,
+  },
   instructionCard: {
     position: 'absolute', left: 16, right: 16,
     backgroundColor: Colors.white, borderRadius: 24,
@@ -354,6 +444,8 @@ const styles = StyleSheet.create({
   co2Label: { color: Colors.gray600, fontSize: 13, marginBottom: 4 },
   co2Value: { color: Colors.emerald600, fontSize: 24, fontWeight: '700' },
   leafEmoji: { width: 48, height: 48, backgroundColor: Colors.emerald100, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: -6 },
+  co2InfoText: { color: Colors.emerald700, fontSize: 12, fontWeight: '700' },
   destBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.gray50, borderRadius: 12, padding: 12 },
   destText: { flex: 1, color: '#1A1A1A', fontWeight: '500', fontSize: 14 },
   endBtn: {

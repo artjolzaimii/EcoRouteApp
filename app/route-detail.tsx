@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { routeStore } from '@/lib/routeStore';
 import { RouteStep } from '@/lib/types';
+import { co2DataFromRoute } from '@/lib/co2Transparency';
+import {
+  flattenRouteSegments,
+  getRouteMapSegments,
+  getTransitionMarkers,
+  routeModeIcon,
+  routeModeStyle,
+} from '@/lib/routeMap';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { decodePolyline } from '@/lib/polyline';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -46,6 +54,8 @@ function formatDuration(s: number): string {
 
 export default function RouteDetailScreen() {
   const insets = useSafeAreaInsets();
+  const mapRef = useRef<MapView>(null);
+  const [co2SheetVisible, setCo2SheetVisible] = useState(false);
   const state = routeStore.get();
   const selectedIndex = state?.selectedIndex ?? 0;
 
@@ -63,20 +73,41 @@ export default function RouteDetailScreen() {
     instruction: leg.instruction,
     distanceM: Math.round(leg.distanceKm * 1000),
     durationS: 0,
+    polyline: leg.polyline,
+    startLocation: leg.startLocation,
+    endLocation: leg.endLocation,
   })) ?? legacyRoute?.steps ?? [];
 
   const partnerStop = ecoRoute?.partnerStop ?? null;
-  const polylineStr: string = ecoRoute?.geometry ?? legacyRoute?.polyline ?? '';
   const co2Grams: number = ecoRoute?.co2Grams ?? legacyRoute?.co2Grams ?? 0;
   const durationMinutes: number = ecoRoute?.durationMin ?? legacyRoute?.durationMinutes ?? 0;
   const distanceKm: number = ecoRoute?.distanceKm ?? legacyRoute?.distanceKm ?? 0;
   const greenPoints: number = ecoRoute?.greenPoints ?? legacyRoute?.greenPoints ?? 0;
 
-  const polylineCoords = polylineStr ? decodePolyline(polylineStr) : [];
-
   const hasRoute = !!(ecoRoute ?? legacyRoute);
-  const originCoord = state ? { latitude: state.originLat, longitude: state.originLng } : null;
-  const destCoord = state ? { latitude: state.destLat, longitude: state.destLng } : null;
+  const originLat = state?.originLat;
+  const originLng = state?.originLng;
+  const destLat = state?.destLat;
+  const destLng = state?.destLng;
+  const originCoord = useMemo(
+    () => originLat != null && originLng != null ? { latitude: originLat, longitude: originLng } : null,
+    [originLat, originLng],
+  );
+  const destCoord = useMemo(
+    () => destLat != null && destLng != null ? { latitude: destLat, longitude: destLng } : null,
+    [destLat, destLng],
+  );
+  const routeSegments = useMemo(
+    () => getRouteMapSegments(ecoRoute ?? legacyRoute, ecoRoute?.mode ?? legacyRoute?.mode, originCoord, destCoord),
+    [
+      ecoRoute,
+      legacyRoute,
+      originCoord,
+      destCoord,
+    ],
+  );
+  const routeCoords = useMemo(() => flattenRouteSegments(routeSegments), [routeSegments]);
+  const transitionMarkers = useMemo(() => getTransitionMarkers(routeSegments), [routeSegments]);
   const midLat = state ? (state.originLat + state.destLat) / 2 : 37.7749;
   const midLng = state ? (state.originLng + state.destLng) / 2 : -122.4194;
   const initialRegion = {
@@ -86,6 +117,14 @@ export default function RouteDetailScreen() {
     longitudeDelta: state ? Math.abs(state.originLng - state.destLng) * 2 + 0.01 : 0.05,
   };
 
+  useEffect(() => {
+    if (routeCoords.length < 2 || !mapRef.current) return;
+    mapRef.current.fitToCoordinates(routeCoords, {
+      edgePadding: { top: 48, right: 48, bottom: 48, left: 48 },
+      animated: false,
+    });
+  }, [routeCoords]);
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
@@ -93,17 +132,41 @@ export default function RouteDetailScreen() {
       {/* Map Area */}
       <View style={styles.mapArea}>
         <MapView
+          ref={mapRef}
           style={StyleSheet.absoluteFillObject}
           provider={PROVIDER_GOOGLE}
           initialRegion={initialRegion}
-          scrollEnabled={false}
-          zoomEnabled={false}
+          scrollEnabled
+          zoomEnabled
+          pitchEnabled
+          rotateEnabled
         >
-          {polylineCoords.length > 1 && (
-            <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={4} />
-          )}
+          {routeSegments.map((segment, index) => {
+            const style = routeModeStyle(segment.mode);
+            return (
+              <Polyline
+                key={`route-segment-${index}`}
+                coordinates={segment.coordinates}
+                strokeColor={style.strokeColor}
+                strokeWidth={style.strokeWidth}
+                lineDashPattern={style.lineDashPattern}
+                zIndex={10 + index}
+              />
+            );
+          })}
           {originCoord && <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />}
           {destCoord && <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />}
+          {transitionMarkers.map((marker, index) => (
+            <Marker key={`transition-${index}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.transitionMarker}>
+                <Ionicons
+                  name={routeModeIcon(marker.mode) as React.ComponentProps<typeof Ionicons>['name']}
+                  size={13}
+                  color={Colors.white}
+                />
+              </View>
+            </Marker>
+          ))}
           {partnerStop && (
             <Marker
               coordinate={{ latitude: partnerStop.pickupLat, longitude: partnerStop.pickupLng }}
@@ -212,6 +275,17 @@ export default function RouteDetailScreen() {
             </LinearGradient>
           )}
 
+          {hasRoute && (
+            <TouchableOpacity
+              style={styles.co2InfoBtn}
+              onPress={() => setCo2SheetVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="information-circle-outline" size={16} color={Colors.emerald700} />
+              <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={{ height: 24 }} />
         </ScrollView>
 
@@ -226,6 +300,11 @@ export default function RouteDetailScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      <Co2TransparencySheet
+        visible={co2SheetVisible}
+        data={co2DataFromRoute(ecoRoute ?? legacyRoute)}
+        onClose={() => setCo2SheetVisible(false)}
+      />
     </View>
   );
 }
@@ -233,6 +312,17 @@ export default function RouteDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
   mapArea: { height: '45%', position: 'relative', overflow: 'hidden' },
+  transitionMarker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.gray900,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.md,
+  },
   backBtn: {
     position: 'absolute', left: 16,
     width: 40, height: 40, backgroundColor: Colors.white, borderRadius: 20,
@@ -276,6 +366,8 @@ const styles = StyleSheet.create({
   summaryIcon: { marginBottom: 4 },
   summaryValue: { color: '#1A1A1A', fontWeight: '700', fontSize: 15 },
   summaryLabel: { color: Colors.gray600, fontSize: 12, marginTop: 2 },
+  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', marginBottom: 16 },
+  co2InfoText: { color: Colors.emerald700, fontSize: 13, fontWeight: '700' },
   footerWrap: { paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.gray100 },
   startBtn: {
     backgroundColor: Colors.emerald600, borderRadius: 20, paddingVertical: 16,

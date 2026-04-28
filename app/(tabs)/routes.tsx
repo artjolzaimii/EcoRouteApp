@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,10 +15,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { useRouteStore, routeStore } from '@/lib/routeStore';
-import { decodePolyline } from '@/lib/polyline';
 import { EcoRoute, EcoRoutesResponse, PartnerPin, NearbyPartner } from '@/lib/types';
 import { recordPartnerClick } from '@/lib/api';
+import { co2DataFromRoute } from '@/lib/co2Transparency';
+import {
+  flattenRouteSegments,
+  getRouteMapSegments,
+  getTransitionMarkers,
+  routeModeIcon,
+  routeModeStyle,
+} from '@/lib/routeMap';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -75,6 +83,7 @@ export default function RoutesScreen() {
 
   const [selectedPartner, setSelectedPartner] = useState<PartnerPin | NearbyPartner | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [co2SheetRoute, setCo2SheetRoute] = useState<EcoRoute | any | null>(null);
 
   // Determine which route format we have
   const ecoResponse: EcoRoutesResponse | undefined = state?.ecoResponse;
@@ -90,23 +99,46 @@ export default function RoutesScreen() {
   const selectedEcoRoute: EcoRoute | undefined = hasEcoRoutes ? routes[selectedIndex] : undefined;
   const selectedLegacyRoute = hasLegacyRoutes ? (legacyRoutes as any)[selectedIndex] : undefined;
 
-  // Geometry for map
-  const polylineStr = selectedEcoRoute?.geometry
-    ?? (selectedLegacyRoute as any)?.polyline
-    ?? '';
-  const polylineCoords = polylineStr ? decodePolyline(polylineStr) : [];
+  const originLat = state?.originLat;
+  const originLng = state?.originLng;
+  const destLat = state?.destLat;
+  const destLng = state?.destLng;
+  const originCoord = useMemo(
+    () => originLat != null && originLng != null ? { latitude: originLat, longitude: originLng } : null,
+    [originLat, originLng],
+  );
+  const destCoord = useMemo(
+    () => destLat != null && destLng != null ? { latitude: destLat, longitude: destLng } : null,
+    [destLat, destLng],
+  );
+  const routeSegments = useMemo(
+    () => getRouteMapSegments(
+      selectedEcoRoute ?? selectedLegacyRoute,
+      selectedEcoRoute?.mode ?? selectedLegacyRoute?.mode,
+      originCoord,
+      destCoord,
+    ),
+    [
+      selectedEcoRoute,
+      selectedLegacyRoute,
+      originCoord,
+      destCoord,
+    ],
+  );
+  const routeCoords = useMemo(() => flattenRouteSegments(routeSegments), [routeSegments]);
+  const transitionMarkers = useMemo(() => getTransitionMarkers(routeSegments), [routeSegments]);
 
   // Partner pins
   const partnerPins: PartnerPin[] = ecoResponse?.topRoute?.partnerPins ?? [];
   const nearbyPartners: NearbyPartner[] = !ecoResponse ? ((selectedLegacyRoute as any)?.nearbyPartners ?? []) : [];
 
   useEffect(() => {
-    if (polylineCoords.length < 2 || !mapRef.current) return;
-    mapRef.current.fitToCoordinates(polylineCoords, {
-      edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
+    if (routeCoords.length < 2 || !mapRef.current) return;
+    mapRef.current.fitToCoordinates(routeCoords, {
+      edgePadding: { top: 48, right: 48, bottom: 48, left: 48 },
       animated: true,
     });
-  }, [selectedIndex, polylineCoords.length]);
+  }, [selectedIndex, routeCoords]);
 
   const openPartnerSheet = (partner: PartnerPin | NearbyPartner) => {
     setSelectedPartner(partner);
@@ -141,8 +173,8 @@ export default function RoutesScreen() {
     );
   }
 
-  const originCoord = { latitude: state.originLat, longitude: state.originLng };
-  const destCoord   = { latitude: state.destLat,   longitude: state.destLng   };
+  const resolvedOriginCoord = { latitude: state.originLat, longitude: state.originLng };
+  const resolvedDestCoord   = { latitude: state.destLat,   longitude: state.destLng   };
   const midLat = (state.originLat + state.destLat) / 2;
   const midLng = (state.originLng + state.destLng) / 2;
   const initialRegion = {
@@ -246,6 +278,15 @@ export default function RoutesScreen() {
             <Text style={styles.reasonText}>{route.recommendationReason}</Text>
           </View>
         )}
+
+        <TouchableOpacity
+          style={styles.co2InfoBtn}
+          onPress={() => setCo2SheetRoute(route)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
+          <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -289,6 +330,14 @@ export default function RoutesScreen() {
             <Text style={styles.statGray}>+{route.greenPoints} pts</Text>
           </View>
         </View>
+        <TouchableOpacity
+          style={styles.co2InfoBtn}
+          onPress={() => setCo2SheetRoute(route)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
+          <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -306,11 +355,32 @@ export default function RoutesScreen() {
             showsUserLocation
             showsMyLocationButton={false}
           >
-            {polylineCoords.length > 1 && (
-              <Polyline coordinates={polylineCoords} strokeColor={Colors.emerald600} strokeWidth={4} />
-            )}
-            <Marker coordinate={originCoord} title="Start" pinColor={Colors.emerald600} />
-            <Marker coordinate={destCoord}   title="Destination" pinColor={Colors.red600} />
+            {routeSegments.map((segment, index) => {
+              const style = routeModeStyle(segment.mode);
+              return (
+                <Polyline
+                  key={`route-segment-${selectedIndex}-${index}`}
+                  coordinates={segment.coordinates}
+                  strokeColor={style.strokeColor}
+                  strokeWidth={style.strokeWidth}
+                  lineDashPattern={style.lineDashPattern}
+                  zIndex={10 + index}
+                />
+              );
+            })}
+            <Marker coordinate={resolvedOriginCoord} title="Start" pinColor={Colors.emerald600} />
+            <Marker coordinate={resolvedDestCoord}   title="Destination" pinColor={Colors.red600} />
+            {transitionMarkers.map((marker, index) => (
+              <Marker key={`transition-${selectedIndex}-${index}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+                <View style={styles.transitionMarker}>
+                  <Ionicons
+                    name={routeModeIcon(marker.mode) as React.ComponentProps<typeof Ionicons>['name']}
+                    size={13}
+                    color={Colors.white}
+                  />
+                </View>
+              </Marker>
+            ))}
 
             {/* Eco-business partner pins */}
             {partnerPins.map((p) => (
@@ -559,6 +629,11 @@ export default function RoutesScreen() {
           </Animated.View>
         </View>
       </Modal>
+      <Co2TransparencySheet
+        visible={!!co2SheetRoute}
+        data={co2DataFromRoute(co2SheetRoute)}
+        onClose={() => setCo2SheetRoute(null)}
+      />
     </>
   );
 }
@@ -577,6 +652,17 @@ const styles = StyleSheet.create({
   emptyBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
 
   mapArea: { position: 'relative', overflow: 'hidden' },
+  transitionMarker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.gray900,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.md,
+  },
   partnerPinAbsolute: { position: 'absolute', alignItems: 'center', zIndex: 5 },
   pinCard: {
     backgroundColor: Colors.white, borderRadius: 10,
@@ -622,6 +708,8 @@ const styles = StyleSheet.create({
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statEco: { fontSize: 12, fontWeight: '600', color: Colors.emerald600 },
   statGray: { fontSize: 12, color: Colors.gray600 },
+  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 10 },
+  co2InfoText: { color: Colors.emerald700, fontSize: 12, fontWeight: '600' },
 
   recommendedBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 4,

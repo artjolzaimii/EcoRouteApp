@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RouteSearch, PendingPlace, TripMode } from './types';
+import { getRouteMapSegments } from './routeMap';
 
 // ─── Module-level singleton ───────────────────────────────────────────────────
 // Shared across all screens without a React context. Survives tab navigation.
@@ -18,6 +19,14 @@ export const routeStore = {
   get: (): RouteSearch | null => _state,
 
   set: (data: RouteSearch) => {
+    const origin = { latitude: data.originLat, longitude: data.originLng };
+    const destination = { latitude: data.destLat, longitude: data.destLng };
+    const routes = data.ecoResponse?.routes ?? data.routes;
+
+    routes.forEach((route) => {
+      getRouteMapSegments(route, route.mode, origin, destination);
+    });
+
     _state = data;
     notify();
   },

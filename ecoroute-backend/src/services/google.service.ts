@@ -66,6 +66,9 @@ export function parseSteps(route: GoogleDirectionsRoute): RouteStep[] {
     instruction: step.html_instructions.replace(/<[^>]+>/g, ""), // strip HTML
     distanceM: step.distance.value,
     durationS: step.duration.value,
+    polyline: step.polyline?.points,
+    startLocation: step.start_location,
+    endLocation: step.end_location,
   }));
 }
 

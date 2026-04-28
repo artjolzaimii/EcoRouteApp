@@ -26,6 +26,7 @@ const CompleteTripSchema = z.object({
   // When provided, these take precedence for points calculation.
   co2SavedGrams: z.number().nonnegative().optional(),
   co2EmittedGrams: z.number().nonnegative().optional(),
+  greenPoints: z.number().int().nonnegative().optional(),
 });
 
 const TripsQuerySchema = z.object({
@@ -54,11 +55,10 @@ router.post(
       const co2SavedG   = body.co2SavedGrams   ?? carbon.savedVsCar;
       const co2EmittedG = body.co2EmittedGrams  ?? carbon.co2Grams;
 
-      // Points = (CO2 saved in grams / 10) × mode multiplier — spec formula
-      const rawPoints = calculateGreenPoints(co2SavedG, body.mode);
-      // Cap per-trip points to prevent runaway awards from unrealistic distances
-      const MAX_TRIP_POINTS = 500;
-      const greenPoints = Math.min(rawPoints, MAX_TRIP_POINTS);
+      // Prefer the selected route's precomputed points so completion matches the
+      // route card exactly. No per-trip cap is applied here; the old 500-point cap
+      // was undocumented and caused completed trips to show fewer points.
+      const greenPoints = body.greenPoints ?? calculateGreenPoints(co2SavedG, body.mode);
 
       // Create the trip record
       const trip = await prisma.trip.create({

@@ -102,6 +102,7 @@ export const completeTrip = async (tripData: {
   co2Grams: number;
   co2SavedGrams: number;
   carBaselineG: number;
+  greenPoints?: number;
   originName?: string;
   destName?: string;
   originLat: number;
