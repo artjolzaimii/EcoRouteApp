@@ -13,6 +13,10 @@ const RedeemSchema = z.object({
   couponId: z.string().min(1),
 });
 
+const UseSchema = z.object({
+  userCouponId: z.string().min(1),
+});
+
 // ─── GET /api/coupons ─────────────────────────────────────────────────────────
 // Frontend: rewards.tsx (Available / My Rewards tabs), coupon-detail.tsx
 
@@ -158,6 +162,44 @@ router.post(
           expiresAt: userCoupon.expiresAt,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── POST /api/coupons/use ────────────────────────────────────────────────────
+// Frontend: coupon-redeemed.tsx (Done button — marks coupon as used at the store)
+
+router.post(
+  "/use",
+  requireAuth,
+  validateBody(UseSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { userCouponId } = req.body as z.infer<typeof UseSchema>;
+      const profileId = req.user!.profileId;
+
+      const userCoupon = await prisma.userCoupon.findFirst({
+        where: { id: userCouponId, profileId },
+      });
+
+      if (!userCoupon) {
+        res.status(404).json({ success: false, error: "Coupon not found" });
+        return;
+      }
+
+      if (userCoupon.redeemedAt) {
+        res.status(400).json({ success: false, error: "Coupon already used" });
+        return;
+      }
+
+      const updated = await prisma.userCoupon.update({
+        where: { id: userCouponId },
+        data: { redeemedAt: new Date() },
+      });
+
+      res.json({ success: true, data: { redeemedAt: updated.redeemedAt } });
     } catch (err) {
       next(err);
     }

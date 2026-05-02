@@ -61,6 +61,7 @@ export default function RootLayout() {
           {/* Rewards / Coupons */}
           <Stack.Screen name="coupon-detail" options={{ headerShown: false }} />
           <Stack.Screen name="coupon-redeemed" options={{ headerShown: false }} />
+          <Stack.Screen name="coupon-already-redeemed" options={{ headerShown: false }} />
 
           {/* Legacy */}
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />

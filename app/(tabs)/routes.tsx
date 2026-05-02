@@ -1,23 +1,5 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Modal,
-  Animated,
-  Dimensions,
-  Pressable,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
-import { useRouteStore, routeStore } from '@/lib/routeStore';
-import { EcoRoute, EcoRoutesResponse, PartnerPin, NearbyPartner } from '@/lib/types';
+import { Colors, Shadow } from '@/constants/theme';
 import { recordPartnerClick } from '@/lib/api';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
@@ -27,6 +9,24 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { routeStore, useRouteStore } from '@/lib/routeStore';
+import { EcoRoute, EcoRoutesResponse, NearbyPartner, PartnerPin } from '@/lib/types';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -186,6 +186,10 @@ export default function RoutesScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const hasCyclingOption =
+    routes.some(r => r.mode === 'CYCLING' || r.mode === 'BICYCLING') ||
+    (legacyRoutes as any[]).some(r => r.mode === 'CYCLING' || r.mode === 'BICYCLING');
+
   const renderEcoRouteCard = (route: EcoRoute, idx: number) => {
     const active = selectedIndex === idx;
     const cs = carbonScoreStyle(route.carbonScore);
@@ -218,7 +222,9 @@ export default function RoutesScreen() {
             </View>
             <View>
               <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>
-                {modeLabel(route.mode, route.subType)}
+                {route.mode === 'WALKING' && !hasCyclingOption
+                  ? 'Walking / Cycling'
+                  : modeLabel(route.mode, route.subType)}
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
@@ -244,7 +250,9 @@ export default function RoutesScreen() {
           </View>
           <View style={styles.statItem}>
             <Ionicons name="flash-outline" size={13} color={Colors.purple600} />
-            <Text style={styles.statGray}>+{route.greenPoints} pts</Text>
+            <Text style={styles.statGray}>
+              {route.greenPoints}{route.greenPoints > 0 ? '+' : ''} pts
+            </Text>
           </View>
           <View style={styles.statItem}>
             <Ionicons name="analytics-outline" size={13} color={Colors.gray500} />
@@ -307,7 +315,9 @@ export default function RoutesScreen() {
               <Ionicons name={modeIcon(route.mode)} size={22} color={active ? Colors.white : Colors.gray600} />
             </View>
             <View>
-              <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>{route.label}</Text>
+              <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>
+                {route.mode === 'WALKING' && !hasCyclingOption ? 'Walking / Cycling' : route.label}
+              </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
                 <Text style={styles.routeCardMetaText}>{route.distanceKm?.toFixed(1)} km</Text>
@@ -327,7 +337,9 @@ export default function RoutesScreen() {
           </View>
           <View style={styles.statItem}>
             <Ionicons name="flash-outline" size={13} color={Colors.purple600} />
-            <Text style={styles.statGray}>+{route.greenPoints} pts</Text>
+            <Text style={styles.statGray}>
+              {route.greenPoints}{route.greenPoints > 0 ? '+' : ''} pts
+            </Text>
           </View>
         </View>
         <TouchableOpacity

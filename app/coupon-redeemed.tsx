@@ -6,22 +6,19 @@ import {
   ScrollView,
   StyleSheet,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import Svg, { Rect } from 'react-native-svg';
+import { api } from '@/lib/api';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
-
-const redeemedCoupon = {
-  businessName: 'Green Coffee Co.',
-  offerHeadline: '10% off any purchase',
-  code: 'ECO-X7K2M9',
-};
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -31,7 +28,16 @@ function formatTime(seconds: number): string {
 
 export default function CouponRedeemedScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const [timeLeft, setTimeLeft] = useState(600);
+  const [completing, setCompleting] = useState(false);
+
+  const { userCouponId, code, title, partnerName } = useLocalSearchParams<{
+    userCouponId: string;
+    code: string;
+    title: string;
+    partnerName: string;
+  }>();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const iconScale = useRef(new Animated.Value(0)).current;
@@ -49,6 +55,40 @@ export default function CouponRedeemedScreen() {
     const timer = setInterval(() => setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0)), 1000);
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+  const handleDone = async () => {
+    setCompleting(true);
+    try {
+      await api.post('/api/coupons/use', { userCouponId });
+    } catch {
+      // Continue even if API fails — the code was already shown to the cashier
+    } finally {
+      setCompleting(false);
+    }
+    // Reset the root stack so coupon-already-redeemed sits below (tabs)/rewards.
+    // Swiping back from My Rewards will then reveal the already-redeemed screen.
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: 'coupon-already-redeemed', params: { title, partnerName } },
+          {
+            name: '(tabs)',
+            state: {
+              index: 3, // rewards tab
+              routes: [
+                { name: 'index' },
+                { name: 'routes' },
+                { name: 'impact' },
+                { name: 'rewards' },
+                { name: 'profile' },
+              ],
+            },
+          },
+        ],
+      })
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -69,8 +109,8 @@ export default function CouponRedeemedScreen() {
           {/* Title */}
           <View style={styles.titleSection}>
             <Text style={styles.title}>Coupon Redeemed!</Text>
-            <Text style={styles.businessName}>{redeemedCoupon.businessName}</Text>
-            <Text style={styles.offerHeadline}>{redeemedCoupon.offerHeadline}</Text>
+            <Text style={styles.businessName}>{partnerName ?? '—'}</Text>
+            <Text style={styles.offerHeadline}>{title ?? '—'}</Text>
           </View>
 
           {/* Redemption Card */}
@@ -79,23 +119,19 @@ export default function CouponRedeemedScreen() {
 
             {/* Code */}
             <View style={styles.codeBox}>
-              <Text style={styles.codeText}>{redeemedCoupon.code}</Text>
+              <Text style={styles.codeText}>{code ?? '—'}</Text>
             </View>
 
             {/* QR Code (SVG-based mock) */}
             <View style={styles.qrWrap}>
               <View style={styles.qrBox}>
                 <Svg width={160} height={160} viewBox="0 0 160 160">
-                  {/* Top-left finder */}
                   <Rect x={10} y={10} width={50} height={50} fill="none" stroke="#1A1A1A" strokeWidth={8} />
                   <Rect x={22} y={22} width={26} height={26} fill="#1A1A1A" />
-                  {/* Top-right finder */}
                   <Rect x={100} y={10} width={50} height={50} fill="none" stroke="#1A1A1A" strokeWidth={8} />
                   <Rect x={112} y={22} width={26} height={26} fill="#1A1A1A" />
-                  {/* Bottom-left finder */}
                   <Rect x={10} y={100} width={50} height={50} fill="none" stroke="#1A1A1A" strokeWidth={8} />
                   <Rect x={22} y={112} width={26} height={26} fill="#1A1A1A" />
-                  {/* Data blocks */}
                   <Rect x={70} y={20} width={8} height={8} fill="#1A1A1A" />
                   <Rect x={80} y={20} width={8} height={8} fill="#1A1A1A" />
                   <Rect x={70} y={30} width={8} height={8} fill="#1A1A1A" />
@@ -141,10 +177,15 @@ export default function CouponRedeemedScreen() {
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
           style={styles.doneBtn}
-          onPress={() => router.push('/(tabs)/rewards')}
+          onPress={handleDone}
+          disabled={completing}
           activeOpacity={0.9}
         >
-          <Text style={styles.doneBtnText}>Done</Text>
+          {completing ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <Text style={styles.doneBtnText}>Done</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -156,7 +197,6 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 24, paddingTop: 8, gap: 20 },
   inner: { alignItems: 'center', gap: 20 },
 
-  // Icon
   iconWrap: { marginTop: 16 },
   iconCircle: {
     width: 96,
@@ -168,13 +208,11 @@ const styles = StyleSheet.create({
     ...Shadow.lg,
   },
 
-  // Title
   titleSection: { alignItems: 'center', gap: 4 },
   title: { color: '#1A1A1A', fontSize: 28, fontWeight: '700' },
   businessName: { color: Colors.gray600, fontSize: 16 },
   offerHeadline: { color: Colors.gray500, fontSize: 14 },
 
-  // Redemption card
   redemptionCard: {
     backgroundColor: Colors.white,
     borderRadius: 28,
@@ -196,7 +234,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: ECO_GREEN,
   },
-  codeText: { color: '#1A1A1A', fontSize: 32, fontWeight: '700', letterSpacing: 4, fontFamily: undefined },
+  codeText: { color: '#1A1A1A', fontSize: 32, fontWeight: '700', letterSpacing: 4 },
 
   qrWrap: { alignItems: 'center' },
   qrBox: {
@@ -225,7 +263,6 @@ const styles = StyleSheet.create({
   },
   timerText: { color: Colors.amber700, fontSize: 14, fontWeight: '600' },
 
-  // Instruction
   instructionBox: {
     backgroundColor: Colors.emerald50,
     borderRadius: 16,
@@ -236,7 +273,6 @@ const styles = StyleSheet.create({
   },
   instructionText: { color: Colors.emerald800, fontSize: 14, lineHeight: 20, textAlign: 'center' },
 
-  // Footer
   footer: { paddingHorizontal: 24, paddingTop: 12, backgroundColor: CREAM },
   doneBtn: {
     backgroundColor: ECO_GREEN,
