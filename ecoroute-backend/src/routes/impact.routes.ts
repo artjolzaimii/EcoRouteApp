@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { gramsToCo2TreeDays, gramsToCarTripsAvoided } from "../services/carbon.service";
-import { daysAgo, startOfDay, toDateString } from "../utils/helpers";
+import { daysAgo, startOfDay, startOfMonth, toDateString } from "../utils/helpers";
 import { DayImpact, ImpactSummary } from "../types";
 
 const router = Router();
@@ -130,7 +130,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const summary = await buildImpactSummary(req.user!.profileId, daysAgo(29));
+      const summary = await buildImpactSummary(req.user!.profileId, startOfMonth());
       res.json({ success: true, data: summary });
     } catch (err) {
       next(err);

@@ -29,7 +29,7 @@ type Coupon = {
 type UserCoupon = {
   id: string;
   code: string;
-  usedAt: string | null;
+  redeemedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
   coupon: Coupon;
@@ -313,7 +313,7 @@ export default function RewardsScreen() {
             </View>
           ) : (
             coupons.mine.map((uc) => {
-              const isUsed = !!uc.usedAt;
+              const isUsed = !!uc.redeemedAt;
               return (
                 <View key={uc.id} style={styles.redeemedCard}>
                   <View style={styles.redeemedTop}>
@@ -338,7 +338,18 @@ export default function RewardsScreen() {
                       Redeemed: {new Date(uc.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     </Text>
                     {!isUsed && (
-                      <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/coupon-redeemed')}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => router.push({
+                          pathname: '/coupon-redeemed',
+                          params: {
+                            userCouponId: uc.id,
+                            code: uc.code,
+                            title: uc.coupon.title,
+                            partnerName: uc.coupon.partner.name,
+                          },
+                        })}
+                      >
                         <Text style={styles.useNowText}>Use Now</Text>
                       </TouchableOpacity>
                     )}

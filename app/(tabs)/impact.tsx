@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -114,6 +114,37 @@ export default function ImpactScreen() {
 
   const maxBarValue = Math.max(...barData.map((d) => d.value), 0.1);
 
+  // Calendar: set of day-of-month numbers that had eco trips this month
+  const activeDaysSet = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const set = new Set<number>();
+    (monthData?.dailyBreakdown ?? []).forEach((d) => {
+      const dt = new Date(d.date);
+      if (dt.getFullYear() === year && dt.getMonth() === month && d.trips > 0) {
+        set.add(dt.getDate());
+      }
+    });
+    return set;
+  }, [monthData]);
+
+  // Calendar grid split into rows of 7 (null = empty leading/trailing cell)
+  const calendarRows = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    const rows: (number | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+    return rows;
+  }, []);
+
   const displayedBadges = badges.slice(0, 3);
 
   return (
@@ -215,28 +246,65 @@ export default function ImpactScreen() {
         </View>
       </View>
 
-      {/* Weekly Bar Chart */}
+      {/* Weekly Bar Chart / Monthly Calendar */}
       <View style={styles.section}>
         <View style={[styles.card, styles.chartCard]}>
-          <Text style={styles.chartTitle}>This Week's Activity (kg CO₂)</Text>
-          <View style={styles.barChart}>
-            {barData.map((day) => {
-              const barH = Math.round((day.value / maxBarValue) * BAR_MAX_HEIGHT);
-              return (
-                <View key={day.day} style={styles.barColumn}>
-                  <View style={styles.barWrapper}>
-                    <LinearGradient
-                      colors={[Colors.emerald400, Colors.emerald600]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0, y: 1 }}
-                      style={[styles.bar, { height: Math.max(barH, 2) }]}
-                    />
+          {timeFrame === 'week' ? (
+            <>
+              <Text style={styles.chartTitle}>This Week's Activity (kg CO₂)</Text>
+              <View style={styles.barChart}>
+                {barData.map((day) => {
+                  const barH = Math.round((day.value / maxBarValue) * BAR_MAX_HEIGHT);
+                  return (
+                    <View key={day.day} style={styles.barColumn}>
+                      <View style={styles.barWrapper}>
+                        <LinearGradient
+                          colors={[Colors.emerald400, Colors.emerald600]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 1 }}
+                          style={[styles.bar, { height: Math.max(barH, 2) }]}
+                        />
+                      </View>
+                      <Text style={styles.barLabel}>{day.day}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.chartTitle}>
+                {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </Text>
+              {/* Day-of-week headers */}
+              <View style={styles.calRow}>
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((h, i) => (
+                  <View key={i} style={styles.calCell}>
+                    <Text style={styles.calDayHeader}>{h}</Text>
                   </View>
-                  <Text style={styles.barLabel}>{day.day}</Text>
+                ))}
+              </View>
+              {/* Calendar days */}
+              {calendarRows.map((row, ri) => (
+                <View key={ri} style={styles.calRow}>
+                  {row.map((day, ci) => {
+                    const isActive = day !== null && activeDaysSet.has(day);
+                    return (
+                      <View key={ci} style={styles.calCell}>
+                        {day !== null && (
+                          <View style={[styles.calDayBubble, isActive && styles.calDayBubbleActive]}>
+                            <Text style={[styles.calDayText, isActive && styles.calDayTextActive]}>
+                              {day}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
-              );
-            })}
-          </View>
+              ))}
+            </>
+          )}
         </View>
       </View>
 
@@ -396,4 +464,11 @@ const styles = StyleSheet.create({
   },
   monthlyReportTitle: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 2 },
   monthlyReportSub: { color: Colors.gray500, fontSize: 13 },
+  calRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 2 },
+  calCell: { flex: 1, alignItems: 'center', paddingVertical: 2 },
+  calDayHeader: { fontSize: 12, fontWeight: '600', color: Colors.gray400, marginBottom: 4 },
+  calDayBubble: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  calDayBubbleActive: { backgroundColor: Colors.emerald600 },
+  calDayText: { fontSize: 13, color: Colors.gray700, fontWeight: '500' },
+  calDayTextActive: { color: Colors.white, fontWeight: '700' },
 });

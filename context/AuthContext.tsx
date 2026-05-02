@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { Session } from '@supabase/supabase-js';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 type AuthContextType = {
   session: Session | null;
@@ -14,20 +14,40 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
+async function ensureProfile(session: Session): Promise<void> {
+  const userId = session.user.id;
+  const email = session.user.email ?? '';
+  const fullName =
+    (session.user.user_metadata?.full_name as string | undefined) ??
+    email.split('@')[0];
+
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ authUserId: userId, email, fullName }),
+    });
+  } catch {
+    // Silent — don't block login if the backend is temporarily unreachable
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load existing session on mount
+    // Load existing session on mount and ensure backend profile exists
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
+      if (data.session) ensureProfile(data.session);
     });
 
     // Listen for auth state changes
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
+      if (event === 'SIGNED_IN' && newSession) ensureProfile(newSession);
     });
 
     return () => listener.subscription.unsubscribe();
@@ -39,7 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: fullName } },
+    });
     if (error) throw error;
     if (!data.user) throw new Error('Sign up failed — no user returned');
 

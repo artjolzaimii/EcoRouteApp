@@ -235,7 +235,7 @@ export default function NavigationScreen() {
             });
           } finally {
             setCompleting(false);
-            router.push('/trip-completed');
+            router.replace('/trip-completed');
           }
         },
       },

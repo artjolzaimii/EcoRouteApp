@@ -131,3 +131,13 @@ export function daysAgo(n: number): Date {
   d.setUTCHours(0, 0, 0, 0);
   return d;
 }
+
+/**
+ * Midnight UTC on the 1st of the current month.
+ */
+export function startOfMonth(): Date {
+  const d = new Date();
+  d.setUTCDate(1);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}

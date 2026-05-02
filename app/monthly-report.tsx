@@ -1,47 +1,115 @@
-import React, { useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Animated,
-} from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { Colors, Shadow } from '@/constants/theme';
+import { api } from '@/lib/api';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  Share,
+  Alert,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
-const dailyCO2Data = [
-  { day: '1', value: 0.8 },
-  { day: '5', value: 1.2 },
-  { day: '10', value: 0.9 },
-  { day: '15', value: 1.5 },
-  { day: '20', value: 1.3 },
-  { day: '25', value: 1.1 },
-  { day: '30', value: 1.4 },
-];
+type DayImpact = {
+  date: string;
+  co2SavedG: number;
+  trips: number;
+  distanceKm: number;
+};
 
-const maxValue = Math.max(...dailyCO2Data.map((d) => d.value));
+type ImpactSummary = {
+  totalCo2SavedG: number;
+  totalTrips: number;
+  totalDistanceKm: number;
+  equivalentTreeDays: number;
+  equivalentCarTripsAvoided: number;
+  dailyBreakdown: DayImpact[];
+};
 
-const topStats: { icon: IoniconName; value: string; label: string }[] = [
-  { icon: 'location-outline', value: '42', label: 'Trips' },
-  { icon: 'leaf-outline', value: '156 km', label: 'Distance' },
-  { icon: 'cash-outline', value: '$87', label: 'Saved' },
-];
+const NUM_BARS = 7;
 
-const equivalents = [
-  { emoji: '🌳', title: '12 trees planted', subtitle: 'CO₂ absorption equivalent' },
-  { emoji: '🚗', title: '85 km avoided', subtitle: 'Car trips equivalent' },
-  { emoji: '✈️', title: '0.08 flights', subtitle: 'Short-haul flight equivalent' },
-];
+function sampleEvenly<T>(arr: T[], n: number): T[] {
+  if (arr.length === 0) return [];
+  if (arr.length <= n) return arr;
+  const result: T[] = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.round((i / (n - 1)) * (arr.length - 1));
+    result.push(arr[idx]);
+  }
+  return result;
+}
 
 export default function MonthlyReportScreen() {
   const insets = useSafeAreaInsets();
+  const [data, setData] = useState<ImpactSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await api.get<ImpactSummary>('/api/impact/monthly');
+      setData(result);
+    } catch {
+      // silently fail — show zeros
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Derive 7 evenly-spaced chart points from the daily breakdown
+  const chartData = (() => {
+    const breakdown = data?.dailyBreakdown ?? [];
+    const sampled = sampleEvenly(breakdown, NUM_BARS);
+    while (sampled.length < NUM_BARS) {
+      sampled.push({ date: '', co2SavedG: 0, trips: 0, distanceKm: 0 });
+    }
+    return sampled.map((d) => ({
+      day: d.date ? new Date(d.date).getDate().toString() : '-',
+      value: d.co2SavedG / 1000,
+    }));
+  })();
+
+  const maxChartValue = Math.max(...chartData.map((d) => d.value), 0.1);
+
+  // Derived display values
+  const co2Kg = data ? (data.totalCo2SavedG / 1000).toFixed(1) : '0.0';
+  const treeDays = data ? Math.round(data.equivalentTreeDays) : 0;
+  const carTrips = data ? Math.round(data.equivalentCarTripsAvoided) : 0;
+  const flightsEq = data ? (data.totalCo2SavedG / 200000).toFixed(2) : '0.00';
+  const monthLabel = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const topStats: { icon: IoniconName; value: string; label: string }[] = [
+    { icon: 'location-outline', value: (data?.totalTrips ?? 0).toString(), label: 'Trips' },
+    { icon: 'navigate-outline', value: `${Math.round(data?.totalDistanceKm ?? 0)} km`, label: 'Distance' },
+    { icon: 'leaf-outline', value: treeDays.toString(), label: 'Tree days' },
+  ];
+
+  const equivalents = [
+    { emoji: '🌳', title: `${treeDays} tree days`, subtitle: 'CO₂ absorption equivalent' },
+    { emoji: '🚗', title: `${carTrips} car trips avoided`, subtitle: 'Car trips equivalent' },
+    { emoji: '✈️', title: `${flightsEq} flights`, subtitle: 'Short-haul flight equivalent' },
+  ];
+
+  const badge = (() => {
+    const kg = data ? data.totalCo2SavedG / 1000 : 0;
+    if (kg >= 30) return { title: 'Eco Champion', subtitle: 'Saved over 30 kg CO₂ this month' };
+    if (kg >= 10) return { title: 'Eco Hero', subtitle: 'Saved over 10 kg CO₂ this month' };
+    if (kg >= 1)  return { title: 'Eco Starter', subtitle: 'Started your eco journey!' };
+    return { title: 'Eco Explorer', subtitle: 'Complete trips to earn your first badge!' };
+  })();
 
   // Pre-initialize all animated values (fixed count — no hooks in loops)
   const bar0 = useRef(new Animated.Value(0)).current;
@@ -62,122 +130,218 @@ export default function MonthlyReportScreen() {
     Animated.stagger(100, statsAnims.map((a) =>
       Animated.timing(a, { toValue: 1, duration: 400, useNativeDriver: true }),
     )).start();
-
-    Animated.stagger(100, barAnims.map((a, i) =>
-      Animated.timing(a, { toValue: dailyCO2Data[i].value / maxValue, duration: 500, useNativeDriver: false }),
-    )).start();
   }, []);
 
+  // Re-animate bars whenever data loads
+  useEffect(() => {
+    if (!data) return;
+    barAnims.forEach((a) => a.setValue(0));
+    Animated.stagger(100, barAnims.map((a, i) =>
+      Animated.timing(a, { toValue: chartData[i].value / maxChartValue, duration: 500, useNativeDriver: false }),
+    )).start();
+  }, [data]);
+
+  const generateSummaryText = () => {
+    return `🌍 My Eco Impact for ${monthLabel}:\n\n` +
+           `✅ Saved ${co2Kg} kg of CO₂\n` +
+           `✅ Completed ${data?.totalTrips ?? 0} green trips\n` +
+           `✅ Traveled ${Math.round(data?.totalDistanceKm ?? 0)} km sustainably\n\n` +
+           `That's equivalent to ${treeDays} tree days of absorption! 🌳\n\n` +
+           `Join me on EcoRoute and start saving the planet! 🌿`;
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: generateSummaryText(),
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not share the report');
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #1A1A1A; }
+            h1 { color: #059669; margin-bottom: 8px; }
+            h2 { color: #4B5563; font-size: 18px; margin-bottom: 32px; }
+            .stat-box { background: #F3F4F6; padding: 20px; border-radius: 12px; margin-bottom: 16px; }
+            .stat-label { color: #6B7280; font-size: 14px; margin-bottom: 4px; }
+            .stat-value { font-size: 24px; font-weight: bold; }
+            .footer { margin-top: 60px; font-size: 12px; color: #9CA3AF; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <h1>Monthly Eco Report</h1>
+          <h2>${monthLabel}</h2>
+
+          <div class="stat-box">
+            <div class="stat-label">Total CO₂ Saved</div>
+            <div class="stat-value">${co2Kg} kg</div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Green Trips Completed</div>
+            <div class="stat-value">${data?.totalTrips ?? 0}</div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Total Distance</div>
+            <div class="stat-value">${Math.round(data?.totalDistanceKm ?? 0)} km</div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Environmental Equivalent</div>
+            <div class="stat-value">${treeDays} tree days</div>
+          </div>
+
+          <div class="footer">
+            Generated by EcoRoute App 🌿
+          </div>
+        </body>
+      </html>
+    `;
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (error) {
+      Alert.alert('Error', 'Could not generate PDF');
+    }
+  };
+
   return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      stickyHeaderIndices={[0]}
-    >
-      {/* Header */}
-      <LinearGradient colors={[Colors.emerald600, Colors.emerald700]} style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
-            <Ionicons name="arrow-back-outline" size={20} color={Colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerMonth}>March 2026</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+    <View style={styles.container}>
+      {/* Fixed Back Button */}
+      <TouchableOpacity 
+        style={[styles.backBtn, styles.fixedBackBtn, { top: insets.top + 16 }]} 
+        onPress={() => router.back()} 
+        activeOpacity={0.9}
+      >
+        <Ionicons name="arrow-back-outline" size={20} color={Colors.white} />
+      </TouchableOpacity>
 
-        {/* Hero Stat */}
-        <View style={styles.heroWrap}>
-          <Text style={styles.heroLabel}>Total CO₂ saved</Text>
-          <Text style={styles.heroValue}>34.2 kg</Text>
-          <Text style={styles.heroTrend}>↑ 18% from last month</Text>
-        </View>
-      </LinearGradient>
-
-      {/* Stats Cards */}
-      <View style={styles.statsWrap}>
-        <View style={styles.statsRow}>
-          {topStats.map((stat, i) => (
-            <Animated.View
-              key={stat.label}
-              style={[styles.statCard, { opacity: statsAnims[i], transform: [{ translateY: statsAnims[i].interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}
-            >
-              <Ionicons name={stat.icon} size={24} color={Colors.emerald600} style={styles.statIcon} />
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
-            </Animated.View>
-          ))}
-        </View>
-      </View>
-
-      {/* Environmental Equivalent */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Environmental equivalent</Text>
-        <View style={styles.equivCard}>
-          {equivalents.map((item, i) => (
-            <View key={i} style={[styles.equivRow, i < equivalents.length - 1 && styles.equivBorder]}>
-              <View style={styles.equivIconBox}>
-                <Text style={styles.equivEmoji}>{item.emoji}</Text>
-              </View>
-              <View>
-                <Text style={styles.equivTitle}>{item.title}</Text>
-                <Text style={styles.equivSubtitle}>{item.subtitle}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Badge */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>This month's badge</Text>
-        <LinearGradient colors={[Colors.emerald600, Colors.emerald700]} style={styles.badgeCard}>
-          <View style={styles.badgeIconBox}>
-            <Ionicons name="trophy-outline" size={48} color={Colors.white} />
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <LinearGradient colors={[Colors.emerald600, Colors.emerald700]} style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerRow}>
+            <View style={styles.headerSpacer} />
+            <Text style={styles.headerMonth}>{monthLabel}</Text>
+            <View style={styles.headerSpacer} />
           </View>
-          <Text style={styles.badgeTitle}>Eco Champion</Text>
-          <Text style={styles.badgeSubtitle}>Saved over 30kg CO₂ this month</Text>
-        </LinearGradient>
-      </View>
 
-      {/* Chart */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Daily CO₂ trend</Text>
-        <View style={styles.chartCard}>
-          <View style={styles.chartBars}>
-            {dailyCO2Data.map((item, i) => (
-              <View key={i} style={styles.barWrap}>
-                <View style={styles.barTrack}>
-                  <Animated.View
-                    style={[
-                      styles.bar,
-                      {
-                        height: barAnims[i].interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0%', '100%'],
-                        }),
-                      },
-                    ]}
-                  />
+          {/* Hero Stat */}
+          <View style={styles.heroWrap}>
+            <Text style={styles.heroLabel}>Total CO₂ saved</Text>
+            {loading ? (
+              <ActivityIndicator color={Colors.white} size="large" style={styles.heroLoader} />
+            ) : (
+              <Text style={styles.heroValue}>{co2Kg} kg</Text>
+            )}
+          </View>
+        </LinearGradient>
+
+        {/* Stats Cards */}
+        <View style={styles.statsWrap}>
+          <View style={styles.statsRow}>
+            {topStats.map((stat, i) => (
+              <Animated.View
+                key={stat.label}
+                style={[styles.statCard, { opacity: statsAnims[i], transform: [{ translateY: statsAnims[i].interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}
+              >
+                <Ionicons name={stat.icon} size={24} color={Colors.emerald600} style={styles.statIcon} />
+                <Text style={styles.statValue}>{stat.value}</Text>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+              </Animated.View>
+            ))}
+          </View>
+        </View>
+
+        {/* Environmental Equivalent */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Environmental equivalent</Text>
+          <View style={styles.equivCard}>
+            {equivalents.map((item, i) => (
+              <View key={i} style={[styles.equivRow, i < equivalents.length - 1 && styles.equivBorder]}>
+                <View style={styles.equivIconBox}>
+                  <Text style={styles.equivEmoji}>{item.emoji}</Text>
                 </View>
-                <Text style={styles.barLabel}>{item.day}</Text>
+                <View>
+                  <Text style={styles.equivTitle}>{item.title}</Text>
+                  <Text style={styles.equivSubtitle}>{item.subtitle}</Text>
+                </View>
               </View>
             ))}
           </View>
-          <Text style={styles.chartMonth}>March 2026</Text>
         </View>
-      </View>
 
-      {/* Action Buttons */}
-      <View style={[styles.section, { paddingBottom: insets.bottom + 32 }]}>
-        <TouchableOpacity style={styles.outlineBtn} activeOpacity={0.9}>
-          <Ionicons name="download-outline" size={20} color={Colors.emerald600} />
-          <Text style={styles.outlineBtnText}>Download PDF</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.9}>
-          <Ionicons name="share-outline" size={20} color={Colors.white} />
-          <Text style={styles.primaryBtnText}>Share Report</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        {/* Badge */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>This month's badge</Text>
+          <LinearGradient colors={[Colors.emerald600, Colors.emerald700]} style={styles.badgeCard}>
+            <View style={styles.badgeIconBox}>
+              <Ionicons name="trophy-outline" size={48} color={Colors.white} />
+            </View>
+            <Text style={styles.badgeTitle}>{badge.title}</Text>
+            <Text style={styles.badgeSubtitle}>{badge.subtitle}</Text>
+          </LinearGradient>
+        </View>
+
+        {/* Chart */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Daily CO₂ trend</Text>
+          <View style={styles.chartCard}>
+            <View style={styles.chartBars}>
+              {chartData.map((item, i) => (
+                <View key={i} style={styles.barWrap}>
+                  <View style={styles.barTrack}>
+                    <Animated.View
+                      style={[
+                        styles.bar,
+                        {
+                          height: barAnims[i].interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0%', '100%'],
+                          }),
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.barLabel}>{item.day}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.chartMonth}>{monthLabel}</Text>
+          </View>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={[styles.section, { paddingBottom: insets.bottom + 32 }]}>
+          <TouchableOpacity 
+            style={styles.outlineBtn} 
+            activeOpacity={0.9}
+            onPress={handleDownloadPDF}
+          >
+            <Ionicons name="download-outline" size={20} color={Colors.emerald600} />
+            <Text style={styles.outlineBtnText}>Download PDF</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.primaryBtn} 
+            activeOpacity={0.9}
+            onPress={handleShare}
+          >
+            <Ionicons name="share-outline" size={20} color={Colors.white} />
+            <Text style={styles.primaryBtnText}>Share Report</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -195,12 +359,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  fixedBackBtn: {
+    position: 'absolute',
+    left: 24,
+    zIndex: 10,
+  },
   headerMonth: { color: Colors.white, fontSize: 20, fontWeight: '700' },
   headerSpacer: { width: 40 },
-  heroWrap: { alignItems: 'center' },
+  heroWrap: { alignItems: 'center', minHeight: 80, justifyContent: 'center' },
   heroLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 15, marginBottom: 8 },
+  heroLoader: { marginVertical: 16 },
   heroValue: { color: Colors.white, fontSize: 60, fontWeight: '700', marginBottom: 8 },
-  heroTrend: { color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: '600' },
 
   // Stats
   statsWrap: { paddingHorizontal: 24, marginTop: -16, marginBottom: 24 },
