@@ -44,6 +44,16 @@ type UserStats = {
   totalPoints: number;
 };
 
+type Challenge = {
+  id: string;
+  title: string;
+  description: string;
+  targetValue: number;
+  rewardPoints: number;
+  progress: number;
+  completed: boolean;
+};
+
 function formatDiscount(coupon: Coupon): string {
   if (coupon.discountType === 'PERCENT') return `${coupon.discountValue}% Off`;
   if (coupon.discountType === 'FIXED') return `$${coupon.discountValue} Off`;
@@ -73,18 +83,21 @@ export default function RewardsScreen() {
   const [activeTab, setActiveTab] = useState<'available' | 'redeemed'>('available');
   const [coupons, setCoupons] = useState<CouponsData>({ available: [], mine: [] });
   const [userPoints, setUserPoints] = useState(0);
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [redeeming, setRedeeming] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [couponsData, statsData] = await Promise.all([
+      const [couponsData, statsData, challengesData] = await Promise.all([
         api.get<CouponsData>('/api/coupons'),
         api.get<UserStats>('/api/user/stats'),
+        api.get<Challenge[]>('/api/challenges'),
       ]);
       setCoupons(couponsData);
       setUserPoints(statsData.totalPoints ?? 0);
+      setChallenges(Array.isArray(challengesData) ? challengesData : []);
     } catch {
       // silently fail
     } finally {
@@ -122,12 +135,6 @@ export default function RewardsScreen() {
       ],
     );
   };
-
-  // Hardcoded challenges (could be backed by API later)
-  const challenges = [
-    { title: 'Weekend Warrior', description: 'Complete 5 eco-trips this weekend', reward: '+200 points', progress: 0, total: 5 },
-    { title: 'Bike Champion', description: 'Bike 50km this month', reward: '+500 points', progress: 0, total: 50 },
-  ];
 
   const nextRewardThreshold = coupons.available.length > 0
     ? Math.min(...coupons.available.map((c) => c.pointsCost))
@@ -182,27 +189,34 @@ export default function RewardsScreen() {
             <Ionicons name="star" size={18} color={Colors.yellow500} />
           </View>
           <View style={styles.challengeList}>
-            {challenges.map((c) => {
-              const pct = (c.progress / c.total) * 100;
+            {challenges.length === 0 ? (
+              <Text style={styles.challengeDesc}>No active challenges right now.</Text>
+            ) : challenges.map((c) => {
+              const pct = Math.min((c.progress / c.targetValue) * 100, 100);
+              const progressDisplay = c.targetValue >= 1000
+                ? `${c.progress.toFixed(0)}/${c.targetValue.toFixed(0)}`
+                : `${parseFloat(c.progress.toFixed(1))}/${c.targetValue}`;
               return (
-                <View key={c.title} style={styles.challengeItem}>
+                <View key={c.id} style={[styles.challengeItem, c.completed && styles.challengeItemDone]}>
                   <View style={styles.challengeItemTop}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.challengeName}>{c.title}</Text>
                       <Text style={styles.challengeDesc}>{c.description}</Text>
                     </View>
-                    <Text style={styles.challengeReward}>{c.reward}</Text>
+                    <Text style={styles.challengeReward}>
+                      {c.completed ? '✓ Done' : `+${c.rewardPoints} pts`}
+                    </Text>
                   </View>
                   <View style={styles.challengeBarRow}>
                     <View style={styles.challengeTrack}>
                       <LinearGradient
-                        colors={[Colors.purple500, Colors.pink600]}
+                        colors={c.completed ? [Colors.emerald400, Colors.emerald600] : [Colors.purple500, Colors.pink600]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         style={[styles.challengeFill, { width: `${pct}%` as any }]}
                       />
                     </View>
-                    <Text style={styles.challengeProgress}>{c.progress}/{c.total}</Text>
+                    <Text style={styles.challengeProgress}>{progressDisplay}</Text>
                   </View>
                 </View>
               );
@@ -397,6 +411,7 @@ const styles = StyleSheet.create({
   challengeTitle: { color: Colors.gray900, fontWeight: '700', fontSize: 15 },
   challengeList: { gap: 16 },
   challengeItem: { borderLeftWidth: 4, borderLeftColor: Colors.purple500, paddingLeft: 16 },
+  challengeItemDone: { borderLeftColor: Colors.emerald600, opacity: 0.7 },
   challengeItemTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   challengeName: { color: Colors.gray900, fontWeight: '600', fontSize: 13, marginBottom: 2 },
   challengeDesc: { color: Colors.gray500, fontSize: 11 },

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { PrismaClient, PartnerCategory, DiscountType, ConditionType } from "@prisma/client";
+import { PrismaClient, PartnerCategory, DiscountType, ConditionType, ChallengeType } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -335,6 +335,53 @@ async function main(): Promise<void> {
   });
 
   console.log("  ✔ 3 coupons seeded");
+
+  // ─── Challenges ───────────────────────────────────────────────────────────
+
+  const challengeData = [
+    {
+      id: "seed-challenge-first-steps",
+      title: "First Steps",
+      description: "Complete 3 eco trips",
+      type: ChallengeType.TRIP_COUNT,
+      targetValue: 3,
+      rewardPoints: 100,
+    },
+    {
+      id: "seed-challenge-weekend-warrior",
+      title: "Weekend Warrior",
+      description: "Complete 5 eco trips",
+      type: ChallengeType.TRIP_COUNT,
+      targetValue: 5,
+      rewardPoints: 200,
+    },
+    {
+      id: "seed-challenge-bike-champion",
+      title: "Bike Champion",
+      description: "Cycle 50 km",
+      type: ChallengeType.CYCLING_KM,
+      targetValue: 50,
+      rewardPoints: 500,
+    },
+    {
+      id: "seed-challenge-co2-hero",
+      title: "CO₂ Hero",
+      description: "Save 5,000g of CO₂ vs driving",
+      type: ChallengeType.CO2_SAVED_G,
+      targetValue: 5000,
+      rewardPoints: 300,
+    },
+  ];
+
+  for (const c of challengeData) {
+    await (prisma as any).challenge.upsert({
+      where: { id: c.id },
+      update: { title: c.title, description: c.description, rewardPoints: c.rewardPoints },
+      create: c,
+    });
+  }
+
+  console.log(`  ✔ ${challengeData.length} challenges seeded`);
 
   // ─── Airports ─────────────────────────────────────────────────────────────
 

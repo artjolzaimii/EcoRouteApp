@@ -186,11 +186,43 @@ export default function RoutesScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const hasCyclingOption =
-    routes.some(r => r.mode === 'CYCLING' || r.mode === 'BICYCLING') ||
-    (legacyRoutes as any[]).some(r => r.mode === 'CYCLING' || r.mode === 'BICYCLING');
+  // When the API returns no cycling option, inject a synthetic BICYCLING card that
+  // mirrors the walking route geometry. This lets the user explicitly choose cycling
+  // so the backend records the correct mode and challenge progress updates correctly.
+  const syntheticInjected = useRef(false);
+  useEffect(() => {
+    if (syntheticInjected.current) return;
+    const s = routeStore.get();
+    const ecoResp = s?.ecoResponse;
+    if (!s || !ecoResp) return;
 
-  const renderEcoRouteCard = (route: EcoRoute, idx: number) => {
+    const alreadyHasCycling = ecoResp.routes.some(
+      r => r.mode === 'CYCLING' || r.mode === 'BICYCLING',
+    );
+    syntheticInjected.current = true;
+    if (alreadyHasCycling) return;
+
+    const walkingRoute = ecoResp.routes.find(r => r.mode === 'WALKING');
+    if (!walkingRoute) return;
+
+    const synthetic: EcoRoute & { _synthetic?: boolean } = {
+      ...walkingRoute,
+      mode: 'BICYCLING' as EcoRoute['mode'],
+      durationMin: Math.round(walkingRoute.durationMin / 2),
+      recommended: false,
+      recommendationReason: 'No cycling data for this area — follows the walking path',
+      partnerStop: undefined,
+      _synthetic: true,
+    };
+
+    const updatedRoutes = ecoResp.routes.flatMap(r =>
+      r.mode === 'WALKING' ? [r, synthetic] : [r],
+    );
+
+    routeStore.set({ ...s, ecoResponse: { ...ecoResp, routes: updatedRoutes } });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renderEcoRouteCard = (route: EcoRoute & { _synthetic?: boolean }, idx: number) => {
     const active = selectedIndex === idx;
     const cs = carbonScoreStyle(route.carbonScore);
     const isRecommended = route.recommended;
@@ -222,9 +254,7 @@ export default function RoutesScreen() {
             </View>
             <View>
               <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>
-                {route.mode === 'WALKING' && !hasCyclingOption
-                  ? 'Walking / Cycling'
-                  : modeLabel(route.mode, route.subType)}
+                {modeLabel(route.mode, route.subType)}
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
@@ -286,6 +316,12 @@ export default function RoutesScreen() {
             <Text style={styles.reasonText}>{route.recommendationReason}</Text>
           </View>
         )}
+        {route._synthetic && (
+          <View style={styles.syntheticNote}>
+            <Ionicons name="information-circle-outline" size={12} color={Colors.gray400} />
+            <Text style={styles.syntheticNoteText}>No cycling data — uses the walking path</Text>
+          </View>
+        )}
 
         <TouchableOpacity
           style={styles.co2InfoBtn}
@@ -316,7 +352,7 @@ export default function RoutesScreen() {
             </View>
             <View>
               <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>
-                {route.mode === 'WALKING' && !hasCyclingOption ? 'Walking / Cycling' : route.label}
+                {route.label}
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
@@ -740,6 +776,8 @@ const styles = StyleSheet.create({
 
   reasonRow: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.emerald200 },
   reasonText: { fontSize: 12, color: Colors.emerald700, fontStyle: 'italic' },
+  syntheticNote: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  syntheticNoteText: { fontSize: 11, color: Colors.gray400, fontStyle: 'italic' },
 
   extraInfo: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
   extraInfoText: { fontSize: 11, color: Colors.blue600, flex: 1 },
