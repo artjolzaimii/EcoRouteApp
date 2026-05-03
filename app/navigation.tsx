@@ -184,6 +184,10 @@ export default function NavigationScreen() {
           setCompleting(true);
           try {
             if (state) {
+              const cyclingDistanceKm = ecoRoute?.carbonBreakdown
+                ?.filter(leg => leg.mode === 'CYCLING' || leg.mode === 'BICYCLING')
+                .reduce((sum, leg) => sum + leg.distanceKm, 0) ?? 0;
+
               const res = await api.post<{
                 pointsEarned: number;
                 streakBonusPoints: number;
@@ -204,6 +208,7 @@ export default function NavigationScreen() {
                 co2SavedGrams: co2SavedG,
                 co2EmittedGrams: co2EmittedG,
                 greenPoints,
+                ...(cyclingDistanceKm > 0 ? { cyclingDistanceKm } : {}),
               });
 
               tripResultStore.set({

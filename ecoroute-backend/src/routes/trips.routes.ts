@@ -26,6 +26,7 @@ const CompleteTripSchema = z.object({
   co2SavedGrams: z.number().nonnegative().optional(),
   co2EmittedGrams: z.number().nonnegative().optional(),
   greenPoints: z.number().int().nonnegative().optional(),
+  cyclingDistanceKm: z.number().nonnegative().optional(),
 });
 
 const TripsQuerySchema = z.object({
@@ -164,6 +165,8 @@ router.post(
             break;
           case ChallengeType.CYCLING_KM:
             if (body.mode === TripMode.CYCLING) increment = body.distanceKm;
+            else if (body.mode === TripMode.CYCLING_TRANSIT && body.cyclingDistanceKm)
+              increment = body.cyclingDistanceKm;
             break;
         }
 
