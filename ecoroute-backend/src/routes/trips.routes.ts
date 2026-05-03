@@ -1,12 +1,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { TripMode } from "@prisma/client";
+import { TripMode, EarnType, ChallengeType } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody, validateQuery } from "../middleware/validate.middleware";
 import { calculateCarbon, calculateGreenPoints } from "../services/carbon.service";
 import { awardPoints, updateStreak, checkAndAwardBadges } from "../services/points.service";
-import { EarnType } from "@prisma/client";
 
 const router = Router();
 
@@ -27,6 +26,7 @@ const CompleteTripSchema = z.object({
   co2SavedGrams: z.number().nonnegative().optional(),
   co2EmittedGrams: z.number().nonnegative().optional(),
   greenPoints: z.number().int().nonnegative().optional(),
+  cyclingDistanceKm: z.number().nonnegative().optional(),
 });
 
 const TripsQuerySchema = z.object({
@@ -134,6 +134,73 @@ router.post(
           refId: trip.id,
         },
       });
+
+      // ── Increment challenge progress ──────────────────────────────────────
+      const now = new Date();
+      const activeChallenges = await prisma.challenge.findMany({
+        where: {
+          isActive: true,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        },
+      });
+
+      for (const challenge of activeChallenges) {
+        const existing = await prisma.userChallenge.findUnique({
+          where: { profileId_challengeId: { profileId, challengeId: challenge.id } },
+        });
+
+        if (existing?.completed) continue;
+
+        let increment = 0;
+        switch (challenge.type) {
+          case ChallengeType.TRIP_COUNT:
+            increment = 1;
+            break;
+          case ChallengeType.DISTANCE_KM:
+            increment = body.distanceKm;
+            break;
+          case ChallengeType.CO2_SAVED_G:
+            increment = co2SavedG;
+            break;
+          case ChallengeType.CYCLING_KM:
+            if (body.mode === TripMode.CYCLING) increment = body.distanceKm;
+            else if (body.mode === TripMode.CYCLING_TRANSIT && body.cyclingDistanceKm)
+              increment = body.cyclingDistanceKm;
+            break;
+        }
+
+        if (increment === 0) continue;
+
+        const newProgress = Math.min((existing?.progress ?? 0) + increment, challenge.targetValue);
+        const justCompleted = newProgress >= challenge.targetValue;
+        const completedAt = justCompleted ? now : null;
+
+        await prisma.userChallenge.upsert({
+          where: { profileId_challengeId: { profileId, challengeId: challenge.id } },
+          create: { profileId, challengeId: challenge.id, progress: newProgress, completed: justCompleted, completedAt },
+          update: { progress: newProgress, completed: justCompleted, completedAt },
+        });
+
+        if (justCompleted) {
+          finalBalance = await awardPoints(
+            profileId,
+            challenge.rewardPoints,
+            EarnType.CHALLENGE_COMPLETE,
+            `Challenge completed: ${challenge.title}`,
+            challenge.id
+          );
+          await prisma.notification.create({
+            data: {
+              profileId,
+              title: "Challenge Complete! 🎉",
+              body: `You completed "${challenge.title}" and earned ${challenge.rewardPoints} bonus points!`,
+              refType: "challenge",
+              refId: challenge.id,
+            },
+          });
+        }
+      }
 
       res.status(201).json({
         success: true,

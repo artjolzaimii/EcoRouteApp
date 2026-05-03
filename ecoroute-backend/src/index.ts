@@ -7,6 +7,7 @@ import helmet from "helmet";
 import adminRoutes from "./routes/admin.routes";
 import authRoutes from "./routes/auth.routes";
 import badgesRoutes from "./routes/badges.routes";
+import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
 import impactRoutes from "./routes/impact.routes";
 import partnersRoutes from "./routes/partners.routes";
@@ -48,6 +49,7 @@ app.use("/api/impact", impactRoutes);
 app.use("/api/partners", partnersRoutes);
 app.use("/api/coupons", couponsRoutes);
 app.use("/api/badges", badgesRoutes);
+app.use("/api/challenges", challengesRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────

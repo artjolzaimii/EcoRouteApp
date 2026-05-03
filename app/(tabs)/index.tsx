@@ -51,6 +51,16 @@ const transportModes: TransportMode[] = [
   { id: 'WALKING', label: 'Walk', icon: 'footsteps-outline' },
 ];
 
+type Challenge = {
+  id: string;
+  title: string;
+  description: string;
+  targetValue: number;
+  rewardPoints: number;
+  progress: number;
+  completed: boolean;
+};
+
 type EcoPartner = {
   id: string;
   name: string;
@@ -118,6 +128,9 @@ export default function HomeScreen() {
   const [partners, setPartners] = useState<EcoPartner[]>(FALLBACK_PARTNERS);
   const [partnersLoading, setPartnersLoading] = useState(false);
 
+  // Active challenges preview
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+
   // Live stats for the header "Today's Impact" strip
   const [userStats, setUserStats] = useState<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number } | null>(null);
 
@@ -128,12 +141,15 @@ export default function HomeScreen() {
     loadCurrentLocation();
   }, []);
 
-  // Load TODAY's stats on every focus so they refresh after a trip completes
+  // Load TODAY's stats and challenges on every focus so they refresh after a trip
   useFocusEffect(
     useCallback(() => {
       api.get<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number }>('/api/impact/today')
         .then((data) => setUserStats(data))
-        .catch(() => {/* silently keep previous value */});
+        .catch(() => {});
+      api.get<Challenge[]>('/api/challenges')
+        .then((data) => setChallenges(Array.isArray(data) ? data.filter((c) => !c.completed).slice(0, 2) : []))
+        .catch(() => {});
     }, []),
   );
 
@@ -456,6 +472,35 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* ── Active Challenges ── */}
+        {challenges.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.sectionTitle}>Active Challenges</Text>
+              <TouchableOpacity onPress={() => router.navigate('/(tabs)/rewards')} activeOpacity={0.8}>
+                <Text style={styles.seeAllText}>See all</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.card, { padding: 16, gap: 12 }]}>
+              {challenges.map((c) => {
+                const pct = Math.min((c.progress / c.targetValue) * 100, 100);
+                return (
+                  <View key={c.id} style={styles.challengeRow}>
+                    <View style={styles.challengeRowTop}>
+                      <Text style={styles.challengeName}>{c.title}</Text>
+                      <Text style={styles.challengePts}>+{c.rewardPoints} pts</Text>
+                    </View>
+                    <View style={styles.challengeTrack}>
+                      <View style={[styles.challengeFill, { width: `${pct}%` as any }]} />
+                    </View>
+                    <Text style={styles.challengeDesc}>{c.description}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* ── Eco Partners ── */}
         <View style={styles.section}>
           <View style={styles.rowBetween}>
@@ -637,6 +682,16 @@ const styles = StyleSheet.create({
   },
   findBtnDisabled: { opacity: 0.55 },
   findBtnText: { color: Colors.white, fontWeight: '600', fontSize: 15 },
+
+  // Challenges
+  seeAllText: { color: Colors.emerald600, fontWeight: '600', fontSize: 13 },
+  challengeRow: { gap: 6 },
+  challengeRowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  challengeName: { color: Colors.gray900, fontWeight: '600', fontSize: 13 },
+  challengePts: { color: Colors.emerald600, fontWeight: '700', fontSize: 12 },
+  challengeTrack: { height: 6, backgroundColor: Colors.gray100, borderRadius: 3, overflow: 'hidden' },
+  challengeFill: { height: '100%', backgroundColor: Colors.emerald600, borderRadius: 3 },
+  challengeDesc: { color: Colors.gray500, fontSize: 11 },
 
   // Partners section
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

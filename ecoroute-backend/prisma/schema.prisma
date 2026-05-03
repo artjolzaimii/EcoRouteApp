@@ -78,6 +78,14 @@ enum EarnType {
   ADMIN_GRANT
   COUPON_REDEEM
   PARTNER_VISIT
+  CHALLENGE_COMPLETE
+}
+
+enum ChallengeType {
+  TRIP_COUNT    // complete N trips (any mode)
+  DISTANCE_KM   // travel N km total
+  CO2_SAVED_G   // save N grams of CO2 vs car
+  CYCLING_KM    // cycle N km (CYCLING mode only)
 }
 
 enum ConditionType {
@@ -111,12 +119,13 @@ model Profile {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  stats          UserStats?
-  trips          Trip[]
-  userCoupons    UserCoupon[]
-  userBadges     UserBadge[]
-  pointsLedger   PointsLedger[]
-  notifications  Notification[]
+  stats           UserStats?
+  trips           Trip[]
+  userCoupons     UserCoupon[]
+  userBadges      UserBadge[]
+  userChallenges  UserChallenge[]
+  pointsLedger    PointsLedger[]
+  notifications   Notification[]
 
   @@map("profiles")
 }
@@ -343,6 +352,50 @@ model PointsLedger {
   @@index([profileId])
   @@index([createdAt])
   @@map("points_ledger")
+}
+
+// ─────────────────────────────────────────────
+// Challenge
+// ─────────────────────────────────────────────
+
+model Challenge {
+  id           String        @id @default(cuid())
+  title        String
+  description  String
+  type         ChallengeType
+  targetValue  Float         @map("target_value")
+  modeFilter   TripMode?     @map("mode_filter")  // only used by CYCLING_KM
+  rewardPoints Int           @map("reward_points")
+  startsAt     DateTime      @default(now()) @map("starts_at")
+  endsAt       DateTime?     @map("ends_at")
+  isActive     Boolean       @default(true) @map("is_active")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  userChallenges UserChallenge[]
+
+  @@map("challenges")
+}
+
+// ─────────────────────────────────────────────
+// UserChallenge
+// ─────────────────────────────────────────────
+
+model UserChallenge {
+  id          String    @id @default(cuid())
+  profileId   String    @map("profile_id")
+  challengeId String    @map("challenge_id")
+  progress    Float     @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  profile   Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, challengeId])
+  @@index([profileId])
+  @@map("user_challenges")
 }
 
 // ─────────────────────────────────────────────
