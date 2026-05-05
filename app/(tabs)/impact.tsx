@@ -1,18 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Colors, Shadow } from '@/constants/theme';
+import { usePreferences } from '@/context/PreferencesContext';
+import { api } from '@/lib/api';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
-import { api } from '@/lib/api';
 
 type TimeFrame = 'week' | 'month' | 'year';
 
@@ -49,6 +50,7 @@ function gramsToKg(g: number): string {
   return (g / 1000).toFixed(1);
 }
 
+
 function badgeIcon(name: string): React.ComponentProps<typeof Ionicons>['name'] {
   const lower = name.toLowerCase();
   if (lower.includes('forest') || lower.includes('tree') || lower.includes('leaf')) return 'leaf-outline';
@@ -61,6 +63,7 @@ function badgeIcon(name: string): React.ComponentProps<typeof Ionicons>['name'] 
 
 export default function ImpactScreen() {
   const insets = useSafeAreaInsets();
+  const { formatDistance, formatCO2, prefs, theme } = usePreferences();
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('week');
   const [weekData, setWeekData] = useState<ImpactSummary | null>(null);
   const [monthData, setMonthData] = useState<ImpactSummary | null>(null);
@@ -90,10 +93,10 @@ export default function ImpactScreen() {
   // Derive displayed stats based on selected time frame
   const currentData: ImpactSummary | null = timeFrame === 'week' ? weekData : monthData;
 
-  const co2Kg = currentData ? gramsToKg(currentData.totalCo2SavedG) : '0.0';
+  const co2Kg = currentData ? formatCO2(currentData.totalCo2SavedG) : '0.0 kg CO₂';
   const treesEq = currentData ? currentData.equivalentTreeDays.toFixed(1) : '0.0';
-  const waterL = currentData ? Math.round(currentData.totalDistanceKm * 8) : 0; // rough proxy
-  const distanceKm = currentData ? currentData.totalDistanceKm.toFixed(1) : '0.0';
+  const waterL = currentData ? Math.round(currentData.totalDistanceKm * 8) : 0;
+  const distanceDisplay = currentData ? formatDistance(currentData.totalDistanceKm) : formatDistance(0);
   const trips = currentData?.totalTrips ?? 0;
 
   // Build bar chart data from daily breakdown (week only — last 7 days)
@@ -102,12 +105,14 @@ export default function ImpactScreen() {
     if (!weekData?.dailyBreakdown?.length) {
       return days.map((day) => ({ day, value: 0 }));
     }
-    // Build a map from day-of-week to co2 saved
     const map: Record<string, number> = {};
     weekData.dailyBreakdown.forEach((d) => {
       const dt = new Date(d.date);
       const dayName = dt.toLocaleDateString('en-US', { weekday: 'short' });
-      map[dayName] = (map[dayName] ?? 0) + d.co2SavedG / 1000;
+      const distKm = d.distanceKm ?? 0;
+      // bar shows distance in selected unit
+      const val = prefs.unit === 'miles' ? distKm * 0.621371 : distKm;
+      map[dayName] = (map[dayName] ?? 0) + val;
     });
     return days.map((day) => ({ day, value: map[day] ?? 0 }));
   })();
@@ -117,7 +122,7 @@ export default function ImpactScreen() {
   const displayedBadges = badges.slice(0, 3);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <LinearGradient
         colors={[Colors.emerald600, Colors.emerald700]}
@@ -135,11 +140,11 @@ export default function ImpactScreen() {
           {(['week', 'month'] as const).map((period) => (
             <TouchableOpacity
               key={period}
-              style={[styles.timePill, timeFrame === period && styles.timePillActive]}
+              style={[styles.timePill, timeFrame === period && { backgroundColor: theme.card, ...Shadow.sm }]}
               onPress={() => setTimeFrame(period)}
               activeOpacity={0.85}
             >
-              <Text style={[styles.timePillText, timeFrame === period && styles.timePillTextActive]}>
+              <Text style={[styles.timePillText, timeFrame === period && { color: theme.primary }]}>
                 {period === 'week' ? 'This Week' : 'This Month'}
               </Text>
             </TouchableOpacity>
@@ -149,7 +154,7 @@ export default function ImpactScreen() {
 
       {/* Main Stats Card */}
       <View style={styles.statsCardWrap}>
-        <View style={[styles.card, styles.statsCard]}>
+        <View style={[styles.card, styles.statsCard, { backgroundColor: theme.card }]}>
           {loading ? (
             <ActivityIndicator color={Colors.emerald600} style={{ paddingVertical: 32 }} />
           ) : (
@@ -157,57 +162,57 @@ export default function ImpactScreen() {
               <View style={styles.statsGrid}>
                 <View style={styles.statCell}>
                   <View style={styles.statCellHeader}>
-                    <View style={[styles.statIconBox, { backgroundColor: Colors.emerald100 }]}>
-                      <Ionicons name="leaf-outline" size={18} color={Colors.emerald600} />
+                    <View style={[styles.statIconBox, { backgroundColor: theme.primary + '20' }]}>
+                      <Ionicons name="leaf-outline" size={18} color={theme.primary} />
                     </View>
-                    <Text style={styles.statCellLabel}>CO₂ Saved</Text>
+                    <Text style={[styles.statCellLabel, { color: theme.textSecondary }]}>CO₂ Saved</Text>
                   </View>
-                  <Text style={styles.statCellValue}>
-                    {co2Kg}<Text style={styles.statUnit}> kg</Text>
+                  <Text style={[styles.statCellValue, { color: theme.text }]}>
+                    {co2Kg}
                   </Text>
                 </View>
 
                 <View style={styles.statCell}>
                   <View style={styles.statCellHeader}>
-                    <View style={[styles.statIconBox, { backgroundColor: Colors.green100 }]}>
-                      <Ionicons name="leaf" size={18} color={Colors.green600} />
+                    <View style={[styles.statIconBox, { backgroundColor: theme.emerald100 }]}>
+                      <Ionicons name="leaf" size={18} color={theme.emerald600} />
                     </View>
-                    <Text style={styles.statCellLabel}>Trees</Text>
+                    <Text style={[styles.statCellLabel, { color: theme.textSecondary }]}>Trees</Text>
                   </View>
-                  <Text style={styles.statCellValue}>
+                  <Text style={[styles.statCellValue, { color: theme.text }]}>
                     {treesEq}<Text style={styles.statUnit}> eq.</Text>
                   </Text>
                 </View>
 
                 <View style={styles.statCell}>
                   <View style={styles.statCellHeader}>
-                    <View style={[styles.statIconBox, { backgroundColor: Colors.blue100 }]}>
-                      <Ionicons name="water-outline" size={18} color={Colors.blue600} />
+                    <View style={[styles.statIconBox, { backgroundColor: theme.blue100 }]}>
+                      <Ionicons name="water-outline" size={18} color={theme.blue600} />
                     </View>
-                    <Text style={styles.statCellLabel}>Water</Text>
+                    <Text style={[styles.statCellLabel, { color: theme.textSecondary }]}>Water</Text>
                   </View>
-                  <Text style={styles.statCellValue}>
+                  <Text style={[styles.statCellValue, { color: theme.text }]}>
                     {waterL}<Text style={styles.statUnit}> L</Text>
                   </Text>
                 </View>
 
                 <View style={styles.statCell}>
                   <View style={styles.statCellHeader}>
-                    <View style={[styles.statIconBox, { backgroundColor: Colors.orange100 }]}>
-                      <Ionicons name="location-outline" size={18} color={Colors.orange600} />
+                    <View style={[styles.statIconBox, { backgroundColor: theme.orange100 }]}>
+                      <Ionicons name="location-outline" size={18} color={theme.orange600} />
                     </View>
-                    <Text style={styles.statCellLabel}>Distance</Text>
+                    <Text style={[styles.statCellLabel, { color: theme.textSecondary }]}>Distance</Text>
                   </View>
-                  <Text style={styles.statCellValue}>
-                    {distanceKm}<Text style={styles.statUnit}> km</Text>
+                  <Text style={[styles.statCellValue, { color: theme.text }]}>
+                    {distanceDisplay}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.statsDivider}>
+              <View style={[styles.statsDivider, { borderTopColor: theme.gray100 }]}>
                 <View style={styles.statsDividerLeft}>
-                  <Ionicons name="time-outline" size={18} color={Colors.gray400} />
-                  <Text style={styles.tripsText}>{trips} trips completed</Text>
+                  <Ionicons name="time-outline" size={18} color={theme.textSecondary} />
+                  <Text style={[styles.tripsText, { color: theme.textSecondary }]}>{trips} trips completed</Text>
                 </View>
               </View>
             </>
@@ -217,8 +222,10 @@ export default function ImpactScreen() {
 
       {/* Weekly Bar Chart */}
       <View style={styles.section}>
-        <View style={[styles.card, styles.chartCard]}>
-          <Text style={styles.chartTitle}>This Week's Activity (kg CO₂)</Text>
+        <View style={[styles.card, styles.chartCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.chartTitle, { color: theme.text }]}>
+            This Week's Activity ({prefs.unit === 'miles' ? 'mi' : 'km'} distance)
+          </Text>
           <View style={styles.barChart}>
             {barData.map((day) => {
               const barH = Math.round((day.value / maxBarValue) * BAR_MAX_HEIGHT);
@@ -226,13 +233,13 @@ export default function ImpactScreen() {
                 <View key={day.day} style={styles.barColumn}>
                   <View style={styles.barWrapper}>
                     <LinearGradient
-                      colors={[Colors.emerald400, Colors.emerald600]}
+                      colors={[theme.primary + '80', theme.primary]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 0, y: 1 }}
                       style={[styles.bar, { height: Math.max(barH, 2) }]}
                     />
                   </View>
-                  <Text style={styles.barLabel}>{day.day}</Text>
+                  <Text style={[styles.barLabel, { color: theme.textSecondary }]}>{day.day}</Text>
                 </View>
               );
             })}
@@ -244,9 +251,9 @@ export default function ImpactScreen() {
       {displayedBadges.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Achievements</Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Achievements</Text>
             <TouchableOpacity activeOpacity={0.7}>
-              <Text style={styles.viewAll}>View All</Text>
+              <Text style={[styles.viewAll, { color: theme.primary }]}>View All</Text>
             </TouchableOpacity>
           </View>
 
@@ -257,31 +264,31 @@ export default function ImpactScreen() {
               return (
                 <View
                   key={badge.id}
-                  style={[styles.achievementCard, badge.earned && styles.achievementCardUnlocked]}
+                  style={[styles.achievementCard, { backgroundColor: theme.card }, badge.earned && { borderColor: theme.primary + '40', borderWidth: 2 }]}
                 >
                   <View style={styles.achievementTop}>
-                    <View style={[styles.achievementIconBox, badge.earned && styles.achievementIconBoxUnlocked]}>
-                      <Ionicons name={icon} size={24} color={badge.earned ? Colors.white : Colors.gray400} />
+                    <View style={[styles.achievementIconBox, { backgroundColor: theme.gray100 }, badge.earned && { backgroundColor: theme.primary }]}>
+                      <Ionicons name={icon} size={24} color={badge.earned ? Colors.white : theme.gray400} />
                     </View>
                     <View style={styles.achievementTextWrap}>
                       <View style={styles.achievementNameRow}>
-                        <Text style={styles.achievementName}>{badge.name}</Text>
-                        {badge.earned && <Ionicons name="trophy" size={18} color={Colors.yellow500} />}
+                        <Text style={[styles.achievementName, { color: theme.text }]}>{badge.name}</Text>
+                        {badge.earned && <Ionicons name="trophy" size={18} color={theme.yellow500} />}
                       </View>
-                      <Text style={styles.achievementDesc}>{badge.description}</Text>
+                      <Text style={[styles.achievementDesc, { color: theme.textSecondary }]}>{badge.description}</Text>
                     </View>
                   </View>
 
                   {!badge.earned && (
                     <View style={styles.progressWrap}>
                       <View style={styles.progressLabelRow}>
-                        <Text style={styles.progressLabel}>
+                        <Text style={[styles.progressLabel, { color: theme.textSecondary }]}>
                           {badge.progress} / {badge.progressMax}
                         </Text>
-                        <Text style={styles.progressPct}>{Math.round(pct)}%</Text>
+                        <Text style={[styles.progressPct, { color: theme.primary }]}>{Math.round(pct)}%</Text>
                       </View>
-                      <View style={styles.progressTrack}>
-                        <View style={[styles.progressFill, { width: `${pct}%` as any }]} />
+                      <View style={[styles.progressTrack, { backgroundColor: theme.gray100 }]}>
+                        <View style={[styles.progressFill, { width: `${pct}%` as any, backgroundColor: theme.primary }]} />
                       </View>
                     </View>
                   )}
@@ -295,20 +302,20 @@ export default function ImpactScreen() {
       {/* Monthly Report CTA */}
       <View style={styles.section}>
         <TouchableOpacity
-          style={styles.monthlyReportBtn}
+          style={[styles.monthlyReportBtn, { backgroundColor: theme.card, borderColor: theme.primary + '30' }]}
           onPress={() => router.push('/monthly-report')}
           activeOpacity={0.9}
         >
           <View style={styles.monthlyReportLeft}>
-            <View style={styles.monthlyReportIconBox}>
-              <Ionicons name="bar-chart-outline" size={22} color={Colors.emerald600} />
+            <View style={[styles.monthlyReportIconBox, { backgroundColor: theme.primary + '15' }]}>
+              <Ionicons name="bar-chart-outline" size={22} color={theme.primary} />
             </View>
             <View>
-              <Text style={styles.monthlyReportTitle}>Monthly Report</Text>
-              <Text style={styles.monthlyReportSub}>View full breakdown</Text>
+              <Text style={[styles.monthlyReportTitle, { color: theme.text }]}>Monthly Report</Text>
+              <Text style={[styles.monthlyReportSub, { color: theme.textSecondary }]}>View full breakdown</Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward-outline" size={20} color={Colors.emerald600} />
+          <Ionicons name="chevron-forward-outline" size={20} color={theme.primary} />
         </TouchableOpacity>
       </View>
 

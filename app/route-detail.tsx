@@ -1,20 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-} from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
-import { routeStore } from '@/lib/routeStore';
-import { RouteStep } from '@/lib/types';
+import { Colors, Shadow } from '@/constants/theme';
+import { usePreferences } from '@/context/PreferencesContext';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
   flattenRouteSegments,
@@ -23,6 +9,21 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { routeStore } from '@/lib/routeStore';
+import { RouteStep } from '@/lib/types';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -42,9 +43,8 @@ function stepIcon(mode: string): { icon: IoniconName; bg: string; color: string 
   }
 }
 
-function formatDistance(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m}m`;
-}
+// (Internal miles/km formatting is now handled by PreferencesContext)
+
 
 function formatDuration(s: number): string {
   if (s < 60) return `${s}s`;
@@ -54,6 +54,7 @@ function formatDuration(s: number): string {
 
 export default function RouteDetailScreen() {
   const insets = useSafeAreaInsets();
+  const { formatDistance, theme, prefs } = usePreferences();
   const mapRef = useRef<MapView>(null);
   const [co2SheetVisible, setCo2SheetVisible] = useState(false);
   const state = routeStore.get();
@@ -126,8 +127,8 @@ export default function RouteDetailScreen() {
   }, [routeCoords]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar style={prefs.appearance === 'dark' ? 'light' : 'dark'} />
 
       {/* Map Area */}
       <View style={styles.mapArea}>
@@ -158,11 +159,11 @@ export default function RouteDetailScreen() {
           {destCoord && <Marker coordinate={destCoord} title="Destination" pinColor={Colors.red600} />}
           {transitionMarkers.map((marker, index) => (
             <Marker key={`transition-${index}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={styles.transitionMarker}>
+              <View style={[styles.transitionMarker, { backgroundColor: theme.text, borderColor: theme.background }]}>
                 <Ionicons
                   name={routeModeIcon(marker.mode) as React.ComponentProps<typeof Ionicons>['name']}
                   size={13}
-                  color={Colors.white}
+                  color={theme.background}
                 />
               </View>
             </Marker>
@@ -178,42 +179,42 @@ export default function RouteDetailScreen() {
         </MapView>
 
         <TouchableOpacity
-          style={[styles.backBtn, { top: insets.top + 16 }]}
+          style={[styles.backBtn, { top: insets.top + 16, backgroundColor: theme.card }]}
           onPress={() => router.back()}
           activeOpacity={0.9}
         >
-          <Ionicons name="arrow-back-outline" size={20} color="#1A1A1A" />
+          <Ionicons name="arrow-back-outline" size={20} color={theme.text} />
         </TouchableOpacity>
       </View>
 
       {/* Bottom Sheet */}
-      <View style={styles.sheet}>
-        <View style={styles.sheetHandle} />
+      <View style={[styles.sheet, { backgroundColor: theme.card }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: theme.gray300 }]} />
 
         <ScrollView showsVerticalScrollIndicator={false} style={styles.sheetScroll}>
-          <Text style={styles.sheetTitle}>
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>
             {routeLabel}
           </Text>
 
           {partnerStop && (
-            <View style={styles.partnerCard}>
+            <View style={[styles.partnerCard, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '30' }]}>
               <View style={styles.partnerCardHeader}>
-                <View style={styles.partnerCardIcon}>
-                  <Ionicons name="bicycle-outline" size={20} color={Colors.emerald600} />
+                <View style={[styles.partnerCardIcon, { backgroundColor: theme.primary + '20' }]}>
+                  <Ionicons name="bicycle-outline" size={20} color={theme.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.partnerCardTitle}>{partnerStop.partnerName}</Text>
-                  <Text style={styles.partnerCardSub}>
+                  <Text style={[styles.partnerCardTitle, { color: theme.text }]}>{partnerStop.partnerName}</Text>
+                  <Text style={[styles.partnerCardSub, { color: theme.textSecondary }]}>
                     Pick up {partnerStop.vehicleType.toLowerCase().replace('_', ' ')} — partner stop on route
                   </Text>
                 </View>
-                <View style={styles.partnerCardBadge}>
+                <View style={[styles.partnerCardBadge, { backgroundColor: theme.primary }]}>
                   <Text style={styles.partnerCardBadgeText}>Partner</Text>
                 </View>
               </View>
               {partnerStop.pickupAddress && (
-                <Text style={styles.partnerCardAddress}>
-                  <Ionicons name="location-outline" size={12} color={Colors.gray500} /> {partnerStop.pickupAddress}
+                <Text style={[styles.partnerCardAddress, { color: theme.textSecondary }]}>
+                  <Ionicons name="location-outline" size={12} color={theme.textSecondary} /> {partnerStop.pickupAddress}
                 </Text>
               )}
             </View>
@@ -226,15 +227,15 @@ export default function RouteDetailScreen() {
                 return (
                   <View key={index} style={styles.stepRow}>
                     <View style={styles.stepLeft}>
-                      <View style={[styles.stepIconBox, { backgroundColor: bg }]}>
-                        <Ionicons name={icon} size={20} color={color} />
+                      <View style={[styles.stepIconBox, { backgroundColor: bg || theme.gray100 }]}>
+                        <Ionicons name={icon} size={20} color={color || theme.text} />
                       </View>
-                      {index < steps.length - 1 && <View style={styles.stepConnector} />}
+                      {index < steps.length - 1 && <View style={[styles.stepConnector, { backgroundColor: theme.gray200 }]} />}
                     </View>
                     <View style={styles.stepContent}>
-                      <Text style={styles.stepInstruction}>{step.instruction}</Text>
-                      <Text style={styles.stepMeta}>
-                        {formatDistance(step.distanceM)}{step.durationS > 0 ? ` • ${formatDuration(step.durationS)}` : ''}
+                      <Text style={[styles.stepInstruction, { color: theme.text }]}>{step.instruction}</Text>
+                      <Text style={[styles.stepMeta, { color: theme.textSecondary }]}>
+                        {formatDistance(step.distanceM / 1000)}{step.durationS > 0 ? ` • ${formatDuration(step.durationS)}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -243,33 +244,33 @@ export default function RouteDetailScreen() {
             </View>
           ) : (
             <View style={styles.noSteps}>
-              <Text style={styles.noStepsText}>No step-by-step breakdown available for this route.</Text>
+              <Text style={[styles.noStepsText, { color: theme.textSecondary }]}>No step-by-step breakdown available for this route.</Text>
             </View>
           )}
 
           {/* Summary */}
           {hasRoute && (
-            <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.summaryBox}>
+            <LinearGradient colors={[theme.primary + '15', theme.primary + '05']} style={[styles.summaryBox, { borderColor: theme.primary + '30' }]}>
               <View style={styles.summaryRow}>
                 <View style={styles.summaryItem}>
-                  <Ionicons name="leaf-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{co2Grams}g</Text>
-                  <Text style={styles.summaryLabel}>CO₂</Text>
+                  <Ionicons name="leaf-outline" size={20} color={theme.primary} style={styles.summaryIcon} />
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>{co2Grams}g</Text>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>CO₂</Text>
                 </View>
                 <View style={styles.summaryItem}>
-                  <Ionicons name="time-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{durationMinutes} min</Text>
-                  <Text style={styles.summaryLabel}>Duration</Text>
+                  <Ionicons name="time-outline" size={20} color={theme.primary} style={styles.summaryIcon} />
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>{durationMinutes} min</Text>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Duration</Text>
                 </View>
                 <View style={styles.summaryItem}>
-                  <Ionicons name="location-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>{distanceKm.toFixed(1)} km</Text>
-                  <Text style={styles.summaryLabel}>Distance</Text>
+                  <Ionicons name="location-outline" size={20} color={theme.primary} style={styles.summaryIcon} />
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>{formatDistance(distanceKm)}</Text>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Distance</Text>
                 </View>
                 <View style={styles.summaryItem}>
-                  <Ionicons name="flash-outline" size={20} color={Colors.emerald600} style={styles.summaryIcon} />
-                  <Text style={styles.summaryValue}>+{greenPoints}</Text>
-                  <Text style={styles.summaryLabel}>Points</Text>
+                  <Ionicons name="flash-outline" size={20} color={theme.primary} style={styles.summaryIcon} />
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>+{greenPoints}</Text>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Points</Text>
                 </View>
               </View>
             </LinearGradient>
@@ -281,17 +282,17 @@ export default function RouteDetailScreen() {
               onPress={() => setCo2SheetVisible(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="information-circle-outline" size={16} color={Colors.emerald700} />
-              <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+              <Ionicons name="information-circle-outline" size={16} color={theme.primary} />
+              <Text style={[styles.co2InfoText, { color: theme.primary }]}>How is CO₂ calculated?</Text>
             </TouchableOpacity>
           )}
 
           <View style={{ height: 24 }} />
         </ScrollView>
 
-        <View style={[styles.footerWrap, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={[styles.footerWrap, { paddingBottom: insets.bottom + 16, borderTopColor: theme.gray100 }]}>
           <TouchableOpacity
-            style={styles.startBtn}
+            style={[styles.startBtn, { backgroundColor: theme.primary }]}
             onPress={() => router.push('/navigation')}
             activeOpacity={0.9}
           >

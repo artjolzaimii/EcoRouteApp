@@ -1,28 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { Colors, Shadow } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { usePreferences } from '@/context/PreferencesContext';
+import { api } from '@/lib/api';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
-  Animated,
-  Platform,
-  Alert,
-  ActivityIndicator,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
-import { api } from '@/lib/api';
-import { useAuth } from '@/context/AuthContext';
-
-const CREAM = '#F1EFE8';
-const ECO_GREEN = Colors.emerald600;
 
 type NotifKey = 'weeklySummary' | 'badgeAlerts' | 'streakReminders' | 'ecoPartnerNearby';
 
@@ -40,6 +40,7 @@ type ProfileData = { fullName: string; email: string };
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { prefs, setPrefs, theme } = usePreferences();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
@@ -49,10 +50,10 @@ export default function EditProfileScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   const [notifications, setNotifications] = useState<Record<NotifKey, boolean>>({
-    weeklySummary: true,
-    badgeAlerts: true,
+    weeklySummary: prefs.notificationsEnabled,
+    badgeAlerts: prefs.notificationsEnabled,
     streakReminders: false,
-    ecoPartnerNearby: true,
+    ecoPartnerNearby: prefs.notificationsEnabled,
   });
 
   useEffect(() => {
@@ -63,10 +64,15 @@ export default function EditProfileScreen() {
 
     api.get<ProfileData>('/api/user/profile')
       .then((data) => {
-        setFullName(data.fullName ?? '');
+        const name = data.fullName ?? prefs.fullName ?? '';
+        setFullName(name);
         setEmail(data.email ?? session?.user?.email ?? '');
+        if (data.fullName && data.fullName !== prefs.fullName) {
+          setPrefs({ fullName: data.fullName });
+        }
       })
       .catch(() => {
+        setFullName(prefs.fullName ?? '');
         setEmail(session?.user?.email ?? '');
       })
       .finally(() => setLoadingProfile(false));
@@ -74,6 +80,25 @@ export default function EditProfileScreen() {
 
   const toggleNotif = (key: NotifKey, value: boolean) => {
     setNotifications((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setPrefs({ photoUri: result.assets[0].uri });
+    }
   };
 
   const handleSave = async () => {
@@ -85,11 +110,15 @@ export default function EditProfileScreen() {
     setSaving(true);
     try {
       await api.patch('/api/user/profile', { fullName: fullName.trim() });
+      setPrefs({ fullName: fullName.trim() });
       Alert.alert('Saved', 'Your profile has been updated.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (err: any) {
-      Alert.alert('Save failed', err.message ?? 'Could not save profile. Please try again.');
+      // Fallback for demo if API fails
+      setPrefs({ fullName: fullName.trim() });
+      Alert.alert('Profile Updated', 'Local profile updated (API unavailable).');
+      router.back();
     } finally {
       setSaving(false);
     }
@@ -99,16 +128,22 @@ export default function EditProfileScreen() {
     ? fullName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
     : '?';
 
+  // Use theme colors
+  const bgColor = theme.background;
+  const cardColor = theme.card;
+  const textColor = theme.text;
+  const subtextColor = theme.textSecondary;
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: bgColor }]}>
+      <StatusBar style={prefs.appearance === 'dark' ? 'light' : 'dark'} />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
-          <Ionicons name="arrow-back-outline" size={20} color="#1A1A1A" />
+        <TouchableOpacity style={[styles.backBtn, { backgroundColor: cardColor }]} onPress={() => router.back()} activeOpacity={0.9}>
+          <Ionicons name="arrow-back-outline" size={20} color={textColor} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit Profile</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>Edit Profile</Text>
       </View>
 
       <ScrollView
@@ -120,58 +155,71 @@ export default function EditProfileScreen() {
         <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           {/* Avatar */}
           <View style={styles.avatarWrap}>
-            <LinearGradient colors={[Colors.emerald400, Colors.emerald600]} style={styles.avatar}>
-              {loadingProfile ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.avatarInitials}>{initials}</Text>
-              )}
-            </LinearGradient>
-            <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.9}>
+            <View style={styles.avatarShadow}>
+              <LinearGradient colors={[Colors.emerald400, Colors.emerald600]} style={styles.avatar}>
+                {loadingProfile ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : prefs.photoUri ? (
+                  <Image source={{ uri: prefs.photoUri }} style={styles.avatarImg} />
+                ) : (
+                  <Text style={styles.avatarInitials}>{initials}</Text>
+                )}
+              </LinearGradient>
+            </View>
+            <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.9} onPress={pickImage}>
               <Ionicons name="camera-outline" size={20} color={Colors.white} />
             </TouchableOpacity>
+            {prefs.photoUri && (
+              <TouchableOpacity
+                style={[styles.removePhotoBtn, { backgroundColor: theme.red600 }]}
+                activeOpacity={0.8}
+                onPress={() => setPrefs({ photoUri: null })}
+              >
+                <Ionicons name="close-outline" size={16} color={Colors.white} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Profile Info */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: cardColor }]}>
             <View style={styles.fieldWrap}>
-              <Text style={styles.label}>Full Name</Text>
+              <Text style={[styles.label, { color: subtextColor }]}>Full Name</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: theme.gray50, color: textColor, borderColor: theme.gray200 }]}
                 value={fullName}
                 onChangeText={setFullName}
                 placeholder="Your full name"
-                placeholderTextColor={Colors.gray400}
+                placeholderTextColor={subtextColor}
                 autoCapitalize="words"
               />
             </View>
 
             <View style={styles.fieldWrap}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={[styles.label, { color: subtextColor }]}>Email</Text>
               <TextInput
-                style={[styles.input, styles.inputDisabled]}
+                style={[styles.input, styles.inputDisabled, { backgroundColor: theme.gray100, color: theme.gray500, borderColor: theme.gray200 }]}
                 value={email}
                 editable={false}
               />
-              <Text style={styles.fieldNote}>Email cannot be changed</Text>
+              <Text style={[styles.fieldNote, { color: subtextColor }]}>Email cannot be changed</Text>
             </View>
           </View>
 
           {/* Notification Preferences */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Notification Preferences</Text>
+          <View style={[styles.card, { backgroundColor: cardColor }]}>
+            <Text style={[styles.cardTitle, { color: textColor }]}>Notification Preferences</Text>
             {notifConfig.map((item, i) => (
               <View key={item.key}>
-                {i > 0 && <View style={styles.divider} />}
+                {i > 0 && <View style={[styles.divider, { backgroundColor: theme.gray100 }]} />}
                 <View style={styles.notifRow}>
                   <View style={styles.notifText}>
-                    <Text style={styles.notifTitle}>{item.title}</Text>
-                    <Text style={styles.notifSubtitle}>{item.subtitle}</Text>
+                    <Text style={[styles.notifTitle, { color: textColor }]}>{item.title}</Text>
+                    <Text style={[styles.notifSubtitle, { color: subtextColor }]}>{item.subtitle}</Text>
                   </View>
                   <Switch
                     value={notifications[item.key]}
                     onValueChange={(val) => toggleNotif(item.key, val)}
-                    trackColor={{ false: Colors.gray300, true: ECO_GREEN }}
+                    trackColor={{ false: theme.gray300, true: theme.primary }}
                     thumbColor={Colors.white}
                   />
                 </View>
@@ -182,9 +230,9 @@ export default function EditProfileScreen() {
       </ScrollView>
 
       {/* Save Button */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 16, backgroundColor: bgColor }]}>
         <TouchableOpacity
-          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+          style={[styles.saveBtn, saving && styles.saveBtnDisabled, { backgroundColor: theme.primary }]}
           onPress={handleSave}
           activeOpacity={0.9}
           disabled={saving}
@@ -201,18 +249,17 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: CREAM },
+  container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 24, paddingVertical: 16 },
   backBtn: {
     width: 40,
     height: 40,
-    backgroundColor: Colors.white,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadow.sm,
   },
-  headerTitle: { color: '#1A1A1A', fontSize: 24, fontWeight: '700' },
+  headerTitle: { fontSize: 24, fontWeight: '700' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingTop: 8, gap: 20 },
   inner: { gap: 20 },
@@ -223,8 +270,15 @@ const styles = StyleSheet.create({
     borderRadius: 64,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarShadow: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
     ...Shadow.lg,
   },
+  avatarImg: { width: 128, height: 128 },
   avatarInitials: { color: Colors.white, fontSize: 36, fontWeight: '700' },
   cameraBtn: {
     position: 'absolute',
@@ -232,38 +286,46 @@ const styles = StyleSheet.create({
     right: '35%',
     width: 40,
     height: 40,
-    backgroundColor: ECO_GREEN,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 4,
-    borderColor: CREAM,
+    borderColor: 'transparent',
     ...Shadow.md,
   },
-  card: { backgroundColor: Colors.white, borderRadius: 28, padding: 24, gap: 16, ...Shadow.md },
-  cardTitle: { color: '#1A1A1A', fontSize: 17, fontWeight: '700' },
+  removePhotoBtn: {
+    position: 'absolute',
+    top: 0,
+    right: '35%',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
+    ...Shadow.sm,
+  },
+  card: { borderRadius: 24, padding: 24, gap: 16, ...Shadow.md },
+  cardTitle: { fontSize: 17, fontWeight: '700' },
   fieldWrap: { gap: 8 },
-  label: { color: Colors.gray700, fontSize: 14, fontWeight: '500' },
+  label: { fontSize: 14, fontWeight: '500' },
   input: {
-    backgroundColor: Colors.gray50,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.gray200,
     paddingHorizontal: 16,
     paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    color: '#1A1A1A',
     fontSize: 15,
   },
-  inputDisabled: { backgroundColor: Colors.gray100, color: Colors.gray500 },
-  fieldNote: { color: Colors.gray500, fontSize: 12 },
-  divider: { height: 1, backgroundColor: Colors.gray100 },
+  inputDisabled: { opacity: 0.8 },
+  fieldNote: { fontSize: 12 },
+  divider: { height: 1 },
   notifRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   notifText: { flex: 1, marginRight: 12 },
-  notifTitle: { color: '#1A1A1A', fontWeight: '600', fontSize: 15, marginBottom: 2 },
-  notifSubtitle: { color: Colors.gray600, fontSize: 13 },
-  footer: { paddingHorizontal: 24, paddingTop: 12, backgroundColor: CREAM },
+  notifTitle: { fontWeight: '600', fontSize: 15, marginBottom: 2 },
+  notifSubtitle: { fontSize: 13 },
+  footer: { paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   saveBtn: {
-    backgroundColor: ECO_GREEN,
     borderRadius: 20,
     paddingVertical: 16,
     alignItems: 'center',

@@ -1,23 +1,6 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Modal,
-  Animated,
-  Dimensions,
-  Pressable,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
-import { useRouteStore, routeStore } from '@/lib/routeStore';
-import { EcoRoute, EcoRoutesResponse, PartnerPin, NearbyPartner } from '@/lib/types';
+import { Colors, Shadow } from '@/constants/theme';
+import { usePreferences } from '@/context/PreferencesContext';
 import { recordPartnerClick } from '@/lib/api';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
@@ -27,6 +10,24 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { routeStore, useRouteStore } from '@/lib/routeStore';
+import { EcoRoute, EcoRoutesResponse, NearbyPartner, PartnerPin } from '@/lib/types';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -40,15 +41,15 @@ const MAP_HEIGHT = Math.round(SCREEN_HEIGHT * 0.44);
 function modeIcon(mode: string): React.ComponentProps<typeof Ionicons>['name'] {
   switch (mode) {
     case 'CYCLING':
-    case 'BICYCLING':    return 'bicycle-outline';
-    case 'TRANSIT':      return 'bus-outline';
-    case 'WALKING':      return 'footsteps-outline';
+    case 'BICYCLING': return 'bicycle-outline';
+    case 'TRANSIT': return 'bus-outline';
+    case 'WALKING': return 'footsteps-outline';
     case 'MIXED':
     case 'CYCLING_TRANSIT': return 'git-merge-outline';
-    case 'TRAIN':        return 'train-outline';
-    case 'PLANE':        return 'airplane-outline';
-    case 'EV':           return 'car-outline';
-    default:             return 'navigate-outline';
+    case 'TRAIN': return 'train-outline';
+    case 'PLANE': return 'airplane-outline';
+    case 'EV': return 'car-outline';
+    default: return 'navigate-outline';
   }
 }
 
@@ -56,19 +57,19 @@ function modeLabel(mode: string, subType?: string): string {
   if (subType === 'CYCLING_TRANSIT' || mode === 'MIXED') return 'Cycling + Transit';
   switch (mode) {
     case 'CYCLING':
-    case 'BICYCLING':    return 'Cycling';
-    case 'TRANSIT':      return 'Transit';
-    case 'WALKING':      return 'Walking';
-    case 'TRAIN':        return 'Train';
-    case 'PLANE':        return 'Flight';
-    default:             return mode;
+    case 'BICYCLING': return 'Cycling';
+    case 'TRANSIT': return 'Transit';
+    case 'WALKING': return 'Walking';
+    case 'TRAIN': return 'Train';
+    case 'PLANE': return 'Flight';
+    default: return mode;
   }
 }
 
 function carbonScoreStyle(score: number): { bg: string; text: string; label: string } {
   if (score >= 80) return { bg: Colors.emerald100, text: Colors.emerald700, label: 'Best' };
-  if (score >= 50) return { bg: Colors.amber100,   text: Colors.amber700,   label: 'Good' };
-  return                  { bg: Colors.red100,      text: Colors.red600,     label: 'High CO2' };
+  if (score >= 50) return { bg: Colors.amber100, text: Colors.amber700, label: 'Good' };
+  return { bg: Colors.red100, text: Colors.red600, label: 'High CO2' };
 }
 
 // ─────────────────────────────────────────────
@@ -77,6 +78,7 @@ function carbonScoreStyle(score: number): { bg: string; text: string; label: str
 
 export default function RoutesScreen() {
   const insets = useSafeAreaInsets();
+  const { formatDistance } = usePreferences();
   const { state } = useRouteStore();
   const mapRef = useRef<MapView>(null);
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -174,7 +176,7 @@ export default function RoutesScreen() {
   }
 
   const resolvedOriginCoord = { latitude: state.originLat, longitude: state.originLng };
-  const resolvedDestCoord   = { latitude: state.destLat,   longitude: state.destLng   };
+  const resolvedDestCoord = { latitude: state.destLat, longitude: state.destLng };
   const midLat = (state.originLat + state.destLat) / 2;
   const midLng = (state.originLng + state.destLng) / 2;
   const initialRegion = {
@@ -222,7 +224,7 @@ export default function RoutesScreen() {
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
-                <Text style={styles.routeCardMetaText}>{route.distanceKm.toFixed(1)} km</Text>
+                <Text style={styles.routeCardMetaText}>{formatDistance(route.distanceKm)}</Text>
                 <Ionicons name="time-outline" size={12} color={Colors.gray500} />
                 <Text style={styles.routeCardMetaText}>{route.durationMin} min</Text>
               </View>
@@ -310,7 +312,7 @@ export default function RoutesScreen() {
               <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>{route.label}</Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
-                <Text style={styles.routeCardMetaText}>{route.distanceKm?.toFixed(1)} km</Text>
+                <Text style={styles.routeCardMetaText}>{formatDistance(route.distanceKm ?? 0)}</Text>
                 <Ionicons name="time-outline" size={12} color={Colors.gray500} />
                 <Text style={styles.routeCardMetaText}>{route.durationMinutes} min</Text>
               </View>
@@ -369,7 +371,7 @@ export default function RoutesScreen() {
               );
             })}
             <Marker coordinate={resolvedOriginCoord} title="Start" pinColor={Colors.emerald600} />
-            <Marker coordinate={resolvedDestCoord}   title="Destination" pinColor={Colors.red600} />
+            <Marker coordinate={resolvedDestCoord} title="Destination" pinColor={Colors.red600} />
             {transitionMarkers.map((marker, index) => (
               <Marker key={`transition-${selectedIndex}-${index}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
                 <View style={styles.transitionMarker}>

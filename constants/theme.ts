@@ -65,6 +65,56 @@ export const Colors = {
   purpleText100: '#f3e8ff',  // light text on purple bg
 };
 
+export const DarkColors = {
+  emerald50: '#064e3b',
+  emerald100: '#065f46',
+  emerald200: '#047857',
+  emerald400: '#10b981',
+  emerald600: '#34d399',
+  emerald700: '#6ee7b7',
+  emerald800: '#a7f3d0',
+  emerald900: '#ecfdf5',
+
+  indigo600: '#818cf8',
+
+  white: '#111827', // Use dark as "white" bg
+  gray50: '#1f2937',
+  gray100: '#374151',
+  gray200: '#4b5563',
+  gray300: '#6b7280',
+  gray400: '#9ca3af',
+  gray500: '#d1d5db',
+  gray600: '#e5e7eb',
+  gray700: '#f3f4f6',
+  gray800: '#f9fafb',
+  gray900: '#ffffff', // Use white as "dark" text
+};
+
+export const Theme = {
+  light: {
+    background: '#F1EFE8', // CREAM
+    card: '#ffffff',
+    text: '#111827',
+    textSecondary: '#6b7280',
+    primary: Colors.emerald600,
+    border: '#e5e7eb',
+    ...Colors,
+  },
+  dark: {
+    background: '#0a0a0a',
+    card: '#1a1a1a',
+    text: '#f9fafb',
+    textSecondary: '#9ca3af',
+    primary: DarkColors.emerald400,
+    border: '#2d2d2d',
+    ...Colors, // Spread all to ensure keys
+    ...DarkColors, // Overwrite with dark-specific ones
+  },
+};
+
+export type AppTheme = typeof Theme.light;
+
+
 export const Spacing = {
   1: 4,
   2: 8,

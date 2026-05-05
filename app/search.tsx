@@ -1,19 +1,20 @@
 import { Colors } from '@/constants/theme';
-import { searchPlacesAutocomplete, resolvePlaceId, PlacePrediction } from '@/lib/geocode';
+import { usePreferences } from '@/context/PreferencesContext';
+import { PlacePrediction, resolvePlaceId, searchPlacesAutocomplete } from '@/lib/geocode';
 import { routeStore } from '@/lib/routeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  StyleSheet,
   ActivityIndicator,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -31,6 +32,7 @@ async function tryGetCurrentLocation(): Promise<{ lat: number; lng: number } | n
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
+  const { theme, prefs } = usePreferences();
   const params = useLocalSearchParams<{ field?: string }>();
 
   // 'origin' = searching for the From location; 'dest' (default) = searching for To
@@ -139,68 +141,68 @@ export default function SearchScreen() {
   const isOriginField = field === 'origin';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
+      <StatusBar style={prefs.appearance === 'dark' ? 'light' : 'dark'} />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: theme.gray100 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={20} color={Colors.emerald600} />
-          <Text style={styles.backText}>Back</Text>
+          <Ionicons name="arrow-back-outline" size={20} color={theme.primary} />
+          <Text style={[styles.backText, { color: theme.primary }]}>Back</Text>
         </TouchableOpacity>
       </View>
 
       {/* Search Inputs */}
-      <View style={styles.inputsSection}>
+      <View style={[styles.inputsSection, { borderBottomColor: theme.gray100 }]}>
 
         {/* From row */}
         <View style={styles.inputRow}>
-          <View style={styles.dotGreen}>
-            <View style={styles.dotGreenInner} />
+          <View style={[styles.dotGreen, { backgroundColor: theme.primary + '20' }]}>
+            <View style={[styles.dotGreenInner, { backgroundColor: theme.primary }]} />
           </View>
           {isOriginField ? (
             <TextInput
               ref={inputRef}
-              style={styles.activeInput}
+              style={[styles.activeInput, { color: theme.text }]}
               placeholder="From where?"
-              placeholderTextColor={Colors.gray400}
+              placeholderTextColor={theme.gray400}
               value={query}
               onChangeText={handleChangeText}
               returnKeyType="search"
             />
           ) : (
-            <Text style={styles.staticLabel} numberOfLines={1}>{staticOriginLabel}</Text>
+            <Text style={[styles.staticLabel, { color: theme.textSecondary }]} numberOfLines={1}>{staticOriginLabel}</Text>
           )}
           {isOriginField && query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close-circle" size={18} color={Colors.gray400} />
+              <Ionicons name="close-circle" size={18} color={theme.gray400} />
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.connector} />
+        <View style={[styles.connector, { borderColor: theme.gray200 }]} />
 
         {/* To row */}
         <View style={styles.inputRow}>
-          <View style={styles.dotRed}>
-            <Ionicons name="location-outline" size={16} color={Colors.red600} />
+          <View style={[styles.dotRed, { backgroundColor: theme.red100 }]}>
+            <Ionicons name="location-outline" size={16} color={theme.red600} />
           </View>
           {!isOriginField ? (
             <TextInput
               ref={inputRef}
-              style={styles.activeInput}
+              style={[styles.activeInput, { color: theme.text }]}
               placeholder="Where to?"
-              placeholderTextColor={Colors.gray400}
+              placeholderTextColor={theme.gray400}
               value={query}
               onChangeText={handleChangeText}
               returnKeyType="search"
             />
           ) : (
-            <Text style={styles.staticLabel} numberOfLines={1}>{staticDestLabel}</Text>
+            <Text style={[styles.staticLabel, { color: theme.textSecondary }]} numberOfLines={1}>{staticDestLabel}</Text>
           )}
           {!isOriginField && query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close-circle" size={18} color={Colors.gray400} />
+              <Ionicons name="close-circle" size={18} color={theme.gray400} />
             </TouchableOpacity>
           )}
         </View>
@@ -212,34 +214,34 @@ export default function SearchScreen() {
         {/* "Use current location" shortcut — only when searching for origin */}
         {isOriginField && (
           <TouchableOpacity
-            style={styles.currentLocRow}
+            style={[styles.currentLocRow, { borderBottomColor: theme.gray100 }]}
             onPress={handleUseCurrentLocation}
             activeOpacity={0.7}
             disabled={locLoading}
           >
-            <View style={[styles.listIconBox, styles.listIconBlue]}>
+            <View style={[styles.listIconBox, { backgroundColor: theme.primary + '15' }]}>
               {locLoading
-                ? <ActivityIndicator size="small" color={Colors.emerald600} />
-                : <Ionicons name="navigate-outline" size={20} color={Colors.emerald600} />
+                ? <ActivityIndicator size="small" color={theme.primary} />
+                : <Ionicons name="navigate-outline" size={20} color={theme.primary} />
               }
             </View>
             <View style={styles.listText}>
-              <Text style={styles.listPrimary}>Use current location</Text>
-              <Text style={styles.listSecondary}>GPS — your exact position</Text>
+              <Text style={[styles.listPrimary, { color: theme.text }]}>Use current location</Text>
+              <Text style={[styles.listSecondary, { color: theme.textSecondary }]}>GPS — your exact position</Text>
             </View>
           </TouchableOpacity>
         )}
 
         {loading && (
           <View style={styles.loadingRow}>
-            <ActivityIndicator color={Colors.emerald600} />
-            <Text style={styles.loadingText}>Searching...</Text>
+            <ActivityIndicator color={theme.primary} />
+            <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Searching...</Text>
           </View>
         )}
 
         {!loading && results.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Results</Text>
+          <View style={[styles.section, { borderBottomColor: theme.gray100 }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Results</Text>
             <View style={styles.listWrap}>
               {results.map((item) => {
                 const isResolving = selectingId === item.placeId;
@@ -251,19 +253,19 @@ export default function SearchScreen() {
                     activeOpacity={0.7}
                     disabled={selectingId !== null}
                   >
-                    <View style={[styles.listIconBox, styles.listIconGreen]}>
+                    <View style={[styles.listIconBox, { backgroundColor: theme.primary + '15' }]}>
                       {isResolving
-                        ? <ActivityIndicator size="small" color={Colors.emerald600} />
-                        : <Ionicons name="location-outline" size={20} color={Colors.emerald600} />
+                        ? <ActivityIndicator size="small" color={theme.primary} />
+                        : <Ionicons name="location-outline" size={20} color={theme.primary} />
                       }
                     </View>
                     <View style={styles.listText}>
-                      <Text style={styles.listPrimary} numberOfLines={1}>{item.mainText}</Text>
+                      <Text style={[styles.listPrimary, { color: theme.text }]} numberOfLines={1}>{item.mainText}</Text>
                       {item.secondaryText ? (
-                        <Text style={styles.listSecondary} numberOfLines={1}>{item.secondaryText}</Text>
+                        <Text style={[styles.listSecondary, { color: theme.textSecondary }]} numberOfLines={1}>{item.secondaryText}</Text>
                       ) : null}
                     </View>
-                    <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
+                    <Ionicons name="chevron-forward-outline" size={16} color={theme.gray400} />
                   </TouchableOpacity>
                 );
               })}
@@ -273,15 +275,15 @@ export default function SearchScreen() {
 
         {!loading && query.trim().length >= 2 && results.length === 0 && (
           <View style={styles.noResults}>
-            <Ionicons name="search-outline" size={40} color={Colors.gray300} />
-            <Text style={styles.noResultsText}>No places found for "{query}"</Text>
+            <Ionicons name="search-outline" size={40} color={theme.gray300} />
+            <Text style={[styles.noResultsText, { color: theme.textSecondary }]}>No places found for "{query}"</Text>
           </View>
         )}
 
         {query.trim().length < 2 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tip</Text>
-            <Text style={styles.tipText}>
+          <View style={[styles.section, { borderBottomColor: theme.gray100 }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Tip</Text>
+            <Text style={[styles.tipText, { color: theme.textSecondary }]}>
               {isOriginField
                 ? 'Type an address or use your current GPS location above.'
                 : 'Start typing to search for a destination.'}

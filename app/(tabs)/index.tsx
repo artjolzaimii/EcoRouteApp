@@ -1,18 +1,21 @@
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { getEcoRoutes, api } from '@/lib/api';
+import { usePreferences } from '@/context/PreferencesContext';
+import { api, getEcoRoutes } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
 import { routeStore } from '@/lib/routeStore';
 import { TripMode } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -100,8 +103,9 @@ function modeMatchesTripMode(modeId: TripMode, routeMode: string): boolean {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { prefs, theme } = usePreferences();
 
-  const [selectedMode, setSelectedMode] = useState<TripMode>('CYCLING');
+  const [selectedMode, setSelectedMode] = useState<TripMode>(prefs.defaultMode.toUpperCase() as TripMode);
   const [originAddress, setOriginAddress] = useState('Current location');
   const [destAddress, setDestAddress] = useState('');
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -114,30 +118,25 @@ export default function HomeScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
-  // Partners — loaded from API once location is known; falls back to static list
   const [partners, setPartners] = useState<EcoPartner[]>(FALLBACK_PARTNERS);
   const [partnersLoading, setPartnersLoading] = useState(false);
 
-  // Live stats for the header "Today's Impact" strip
   const [userStats, setUserStats] = useState<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number } | null>(null);
 
   const mapRef = useRef<MapView>(null);
 
-  // Load current location on mount
   useEffect(() => {
     loadCurrentLocation();
   }, []);
 
-  // Load TODAY's stats on every focus so they refresh after a trip completes
   useFocusEffect(
     useCallback(() => {
       api.get<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number }>('/api/impact/today')
         .then((data) => setUserStats(data))
-        .catch(() => {/* silently keep previous value */});
+        .catch(() => { });
     }, []),
   );
 
-  // Consume pending origin / destination from the search screen on focus
   useFocusEffect(
     useCallback(() => {
       const pendingOrigin = routeStore.consumePendingOrigin();
@@ -154,7 +153,6 @@ export default function HomeScreen() {
         setDestAddress(pendingDest.address);
         setDestCoords({ lat: pendingDest.lat, lng: pendingDest.lng });
 
-        // Fit map to show both origin and destination
         const oCoords = pendingOrigin ?? originCoords;
         if (oCoords) {
           const midLat = (oCoords.lat + pendingDest.lat) / 2;
@@ -180,8 +178,6 @@ export default function HomeScreen() {
         const region = { latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 };
         setMapRegion(region);
         mapRef.current?.animateToRegion(region, 600);
-
-        // Load nearby partners for current location (non-blocking)
         loadNearbyPartners(loc.lat, loc.lng);
       }
     } finally {
@@ -198,9 +194,7 @@ export default function HomeScreen() {
       if (data?.partners && data.partners.length > 0) {
         setPartners(data.partners.map(mapApiPartner));
       }
-      // If empty, keep the fallback list
     } catch {
-      // API unavailable — fallback list stays
     } finally {
       setPartnersLoading(false);
     }
@@ -240,7 +234,6 @@ export default function HomeScreen() {
         return;
       }
 
-      // Find best index — prefer selected mode, then recommended
       let bestIndex = 0;
       const modeMatchIdx = ecoResponse.routes.findIndex((r: any) =>
         modeMatchesTripMode(selectedMode, r.mode)
@@ -258,7 +251,7 @@ export default function HomeScreen() {
         destLng: destCoords.lng,
         originAddress,
         destAddress,
-        routes: [] as any, // ecoResponse.routes stored in ecoResponse field
+        routes: [] as any,
         selectedIndex: bestIndex,
         preferredMode: selectedMode,
         ecoResponse,
@@ -272,226 +265,179 @@ export default function HomeScreen() {
     }
   };
 
-  const co2Kg = userStats ? (userStats.totalCo2SavedG / 1000).toFixed(1) + ' kg' : '—';
-  const headerStats = [
-    { icon: 'leaf-outline' as const, value: co2Kg, label: 'CO₂ Saved' },
-    { icon: 'navigate-outline' as const, value: userStats ? String(userStats.totalTrips) : '—', label: 'Trips' },
-    { icon: 'flash-outline' as const, value: userStats ? String(userStats.totalPoints) : '—', label: 'Points' },
-  ];
-
-  const displayName = session?.user?.email?.split('@')[0] ?? 'there';
+  const displayName = prefs.fullName ?? session?.user?.email?.split('@')[0] ?? 'there';
 
   return (
-    <>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar style={prefs.appearance === 'dark' ? 'light' : 'dark'} />
 
-        {/* ── Header ── */}
-        <LinearGradient
-          colors={[Colors.emerald600, Colors.emerald700]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.header, { paddingTop: insets.top + 16 }]}
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={[styles.greeting, { color: theme.textSecondary }]}>Hello, {displayName}</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Let's travel green</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.profileBtn, { backgroundColor: theme.card }]}
+            activeOpacity={0.8}
+            onPress={() => router.push('/(tabs)/profile')}
+          >
+            {prefs.photoUri ? (
+              <Image source={{ uri: prefs.photoUri }} style={styles.profileBtnImg} />
+            ) : (
+              <View style={styles.profileBtnPlaceholder}>
+                <Ionicons name="person" size={20} color={theme.primary} />
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.searchBar, { backgroundColor: theme.card }]}
+          onPress={() => router.push('/search')}
+          activeOpacity={0.8}
         >
-          <Text style={styles.headerGreeting}>Good morning, {displayName}</Text>
-          <Text style={styles.headerTitle}>Ready to make a difference?</Text>
+          <Ionicons name="search" size={20} color={theme.textSecondary} />
+          <Text style={[styles.searchPlaceholder, { color: theme.textSecondary }]}>Where to for your eco-trip?</Text>
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.impactCard}>
-            <View style={styles.impactCardTop}>
-              <Text style={styles.impactLabel}>Today's Impact</Text>
-              <TouchableOpacity onPress={() => router.navigate('/(tabs)/impact')} activeOpacity={0.8}>
-                <View style={styles.trendBadge}>
-                  <Ionicons name="leaf-outline" size={12} color={Colors.white} />
-                  <Text style={styles.trendText}>View all</Text>
-                </View>
-              </TouchableOpacity>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <LinearGradient colors={[theme.primary, theme.primary === Colors.emerald600 ? Colors.emerald700 : '#047857']} style={styles.impactCard}>
+          <View style={styles.impactCardTop}>
+            <Text style={styles.impactLabel}>Today's Impact</Text>
+            <TouchableOpacity onPress={() => router.navigate('/(tabs)/impact')} activeOpacity={0.8}>
+              <View style={styles.trendBadge}>
+                <Ionicons name="leaf-outline" size={12} color={Colors.white} />
+                <Text style={styles.trendText}>View all</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Ionicons name="leaf-outline" size={20} color={Colors.white} />
+              <Text style={styles.statValue}>{userStats ? (userStats.totalCo2SavedG / 1000).toFixed(1) + ' kg' : '—'}</Text>
+              <Text style={styles.statLabel}>CO₂ Saved</Text>
             </View>
-            <View style={styles.statsRow}>
-              {headerStats.map((s) => (
-                <View key={s.label} style={styles.statItem}>
-                  <Ionicons name={s.icon} size={20} color={Colors.white} />
-                  <Text style={styles.statValue}>{s.value}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </View>
-              ))}
+            <View style={styles.statItem}>
+              <Ionicons name="navigate-outline" size={20} color={Colors.white} />
+              <Text style={styles.statValue}>{userStats ? String(userStats.totalTrips) : '—'}</Text>
+              <Text style={styles.statLabel}>Trips</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Ionicons name="flash-outline" size={20} color={Colors.white} />
+              <Text style={styles.statValue}>{userStats ? String(userStats.totalPoints) : '—'}</Text>
+              <Text style={styles.statLabel}>Points</Text>
             </View>
           </View>
         </LinearGradient>
 
-        {/* ── Transport Mode ── */}
-        <View style={styles.sectionOffset}>
-          <View style={[styles.card, styles.modeCardPad]}>
-            <Text style={styles.cardHeading}>Travel Mode</Text>
-            <View style={styles.modeRow}>
-              {transportModes.map((mode) => {
-                const active = selectedMode === mode.id;
-                return (
-                  <TouchableOpacity
-                    key={mode.id}
-                    style={[styles.modeBtn, active && styles.modeBtnActive]}
-                    onPress={() => setSelectedMode(mode.id)}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name={mode.icon} size={24} color={active ? Colors.emerald600 : Colors.gray400} />
-                    <Text style={[styles.modeBtnLabel, active && styles.modeBtnLabelActive]}>{mode.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+        <View>
+          <Text style={[styles.cardHeading, { color: theme.text }]}>Travel Mode</Text>
+          <View style={styles.modesContainer}>
+            {transportModes.map((mode) => {
+              const isSelected = selectedMode === mode.id || (selectedMode === 'TRANSIT' && mode.id === 'TRANSIT');
+              return (
+                <TouchableOpacity
+                  key={mode.id}
+                  style={[
+                    styles.modeBtn,
+                    { backgroundColor: theme.card },
+                    isSelected && { backgroundColor: theme.primary, ...Shadow.md },
+                  ]}
+                  onPress={() => setSelectedMode(mode.id)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={mode.icon}
+                    size={24}
+                    color={isSelected ? Colors.white : theme.textSecondary}
+                  />
+                  <Text style={[styles.modeLabel, { color: isSelected ? Colors.white : theme.text }]}>{mode.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
-        {/* ── Map + Route Inputs ── */}
-        <View style={styles.section}>
-          <View style={[styles.card, styles.mapCardOuter]}>
-
-            {/* Mini Map — fully interactive */}
-            <View style={styles.miniMap}>
-              <MapView
-                ref={mapRef}
-                style={StyleSheet.absoluteFillObject}
-                provider={PROVIDER_GOOGLE}
-                region={mapRegion}
-                onRegionChangeComplete={(r) => setMapRegion(r)}
-                scrollEnabled={true}
-                zoomEnabled={true}
-                rotateEnabled={false}
-                pitchEnabled={false}
-                toolbarEnabled={false}
-                showsUserLocation={true}
-                showsMyLocationButton={false}
-              >
-                {originCoords && (
-                  <Marker
-                    coordinate={{ latitude: originCoords.lat, longitude: originCoords.lng }}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                  >
-                    <View style={styles.originDot}>
-                      <View style={styles.originDotInner} />
-                    </View>
-                  </Marker>
-                )}
-                {destCoords && (
-                  <Marker
-                    coordinate={{ latitude: destCoords.lat, longitude: destCoords.lng }}
-                    pinColor={Colors.red600}
-                    title={destAddress}
-                  />
-                )}
-              </MapView>
-
-              {loadingLocation && (
-                <View style={styles.mapOverlayLoader}>
-                  <ActivityIndicator color={Colors.emerald600} />
-                </View>
-              )}
-            </View>
-
-            {/* Route Inputs */}
-            <View style={styles.inputsWrap}>
-              {/* From */}
-              <TouchableOpacity style={styles.inputRow} onPress={() => router.push('/search?field=origin')} activeOpacity={0.8}>
-                <View style={styles.inputDotGreen}>
-                  <View style={styles.inputDotGreenInner} />
-                </View>
-                <View style={styles.inputTextWrap}>
-                  <Text style={[styles.routeInputText, !originAddress && styles.routeInputPlaceholder]} numberOfLines={1}>
-                    {loadingLocation ? 'Getting location…' : (originAddress || 'Current location')}
-                  </Text>
-                </View>
-                {loadingLocation
-                  ? <ActivityIndicator size="small" color={Colors.emerald600} style={{ marginLeft: 8 }} />
-                  : (
-                    <TouchableOpacity onPress={loadCurrentLocation} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Ionicons name="navigate-outline" size={18} color={Colors.emerald600} />
-                    </TouchableOpacity>
-                  )
-                }
-              </TouchableOpacity>
-
-              <View style={styles.inputDivider} />
-
-              {/* To */}
-              <TouchableOpacity
-                style={styles.inputRow}
-                onPress={() => router.push('/search')}
-                activeOpacity={0.8}
-              >
-                <View style={styles.inputDotRed}>
-                  <Ionicons name="location-outline" size={14} color={Colors.red600} />
-                </View>
-                <View style={styles.inputTextWrap}>
-                  <Text
-                    style={[styles.routeInputText, !destAddress && styles.routeInputPlaceholder]}
-                    numberOfLines={1}
-                  >
-                    {destAddress || 'Where to?'}
-                  </Text>
-                </View>
-                {destAddress ? (
-                  <TouchableOpacity onPress={() => { setDestAddress(''); setDestCoords(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="close-circle-outline" size={18} color={Colors.gray400} />
-                  </TouchableOpacity>
-                ) : (
-                  <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {/* Find Button */}
-            <TouchableOpacity
-              style={[styles.findBtn, (loadingRoutes || !destCoords) && styles.findBtnDisabled]}
-              activeOpacity={0.9}
-              onPress={handleFindRoute}
-              disabled={loadingRoutes || !destCoords}
+        <View style={[styles.card, styles.mapCardOuter]}>
+          <View style={styles.miniMap}>
+            <MapView
+              ref={mapRef}
+              style={StyleSheet.absoluteFillObject}
+              provider={PROVIDER_GOOGLE}
+              region={mapRegion}
+              onRegionChangeComplete={(r) => setMapRegion(r)}
+              scrollEnabled={true}
+              zoomEnabled={true}
+              rotateEnabled={false}
+              pitchEnabled={false}
+              toolbarEnabled={false}
+              showsUserLocation={true}
+              showsMyLocationButton={false}
             >
-              {loadingRoutes ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <>
-                  <Ionicons name="navigate-outline" size={20} color={Colors.white} />
-                  <Text style={styles.findBtnText}>Find Eco-Route</Text>
-                </>
+              {originCoords && (
+                <Marker
+                  coordinate={{ latitude: originCoords.lat, longitude: originCoords.lng }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={styles.originDot}>
+                    <View style={styles.originDotInner} />
+                  </View>
+                </Marker>
               )}
+              {destCoords && (
+                <Marker
+                  coordinate={{ latitude: destCoords.lat, longitude: destCoords.lng }}
+                  pinColor={Colors.red600}
+                  title={destAddress}
+                />
+              )}
+            </MapView>
+          </View>
+          <TouchableOpacity
+            style={[styles.findBtn, (loadingRoutes || !destCoords) && styles.findBtnDisabled]}
+            activeOpacity={0.9}
+            onPress={handleFindRoute}
+            disabled={loadingRoutes || !destCoords}
+          >
+            {loadingRoutes ? (
+              <ActivityIndicator color={Colors.white} />
+            ) : (
+              <>
+                <Ionicons name="navigate-outline" size={20} color={Colors.white} />
+                <Text style={styles.findBtnText}>Find Eco-Route</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Nearby Eco-Partners</Text>
+            <TouchableOpacity onPress={() => router.push('/rewards')}>
+              <Text style={[styles.sectionLink, { color: theme.primary }]}>See all</Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* ── Eco Partners ── */}
-        <View style={styles.section}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.sectionTitle}>Eco Partners on Route</Text>
-            {partnersLoading && <ActivityIndicator size="small" color={Colors.emerald600} />}
-          </View>
-          <View style={styles.partnerListWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.partnersScroll} contentContainerStyle={styles.partnersContent}>
             {partners.map((partner) => (
-              <TouchableOpacity
-                key={partner.id}
-                style={styles.partnerCard}
-                activeOpacity={0.85}
-                onPress={() => openPartnerSheet(partner)}
-              >
-                <Text style={styles.partnerLogo}>{partner.logo}</Text>
-                <View style={styles.partnerInfo}>
-                  <Text style={styles.partnerName}>{partner.name}</Text>
-                  <Text style={styles.partnerOffer}>{partner.offer}</Text>
-                  <View style={styles.partnerDistRow}>
-                    <Ionicons name="location-outline" size={12} color={Colors.gray400} />
-                    <Text style={styles.partnerDist}>{partner.distance}</Text>
-                  </View>
+              <TouchableOpacity key={partner.id} style={[styles.partnerCard, { backgroundColor: theme.card }]} activeOpacity={0.9} onPress={() => openPartnerSheet(partner)}>
+                <View style={[styles.partnerLogo, { backgroundColor: theme.background }]}>
+                  <Text style={styles.partnerLogoEmoji}>{partner.logo}</Text>
                 </View>
-                <View style={styles.partnerPointsBadge}>
-                  <Ionicons name="flash-outline" size={12} color={Colors.emerald600} />
-                  <Text style={styles.partnerPointsText}>+{partner.points}</Text>
-                </View>
+                <Text style={[styles.partnerName, { color: theme.text }]} numberOfLines={1}>{partner.name}</Text>
+                <Text style={[styles.partnerOffer, { color: theme.primary }]}>{partner.offer}</Text>
+                <Text style={[styles.partnerDist, { color: theme.textSecondary }]}>{partner.distance}</Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
-
-        <View style={{ height: 24 }} />
       </ScrollView>
 
-      {/* ── Eco Partner Bottom Sheet ── */}
       <Modal visible={modalVisible} transparent animationType="none" onRequestClose={closeSheet}>
         <View style={styles.modalContainer}>
           <Pressable style={styles.backdrop} onPress={closeSheet} />
@@ -540,137 +486,71 @@ export default function HomeScreen() {
           </Animated.View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.gray50 },
-
-  // Header
-  header: { paddingHorizontal: 24, paddingBottom: 32, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
-  headerGreeting: { color: Colors.emeraldText100, fontSize: 13, marginBottom: 4 },
-  headerTitle: { color: Colors.white, fontSize: 22, fontWeight: '700', marginBottom: 20 },
-  impactCard: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  container: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 24, paddingTop: 16, gap: 24 },
+  header: { paddingHorizontal: 24, paddingBottom: 20 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  greeting: { fontSize: 14, fontWeight: '500', marginBottom: 4 },
+  headerTitle: { fontSize: 28, fontWeight: '700' },
+  profileBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', ...Shadow.sm, overflow: 'hidden' },
+  profileBtnImg: { width: 44, height: 44 },
+  profileBtnPlaceholder: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  searchBar: {
+    height: 56,
     borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  impactCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  impactLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '500' },
-  trendBadge: {
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
+    gap: 12,
+    ...Shadow.md,
   },
+  searchPlaceholder: { fontSize: 16, fontWeight: '500' },
+  impactCard: { borderRadius: 20, padding: 20, ...Shadow.md },
+  impactCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  impactLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '500' },
+  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   trendText: { color: Colors.white, fontSize: 11, fontWeight: '600' },
   statsRow: { flexDirection: 'row', justifyContent: 'space-around' },
   statItem: { alignItems: 'center', gap: 4 },
   statValue: { color: Colors.white, fontWeight: '700', fontSize: 17 },
   statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
-
-  // Sections
-  sectionOffset: { paddingHorizontal: 24, marginTop: -16 },
-  section: { paddingHorizontal: 24, marginTop: 24 },
-  card: { backgroundColor: Colors.white, borderRadius: 16, ...Shadow.lg },
-  modeCardPad: { padding: 16 },
-  cardHeading: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 12 },
-  modeRow: { flexDirection: 'row', gap: 12 },
+  cardHeading: { fontWeight: '600', fontSize: 15, marginBottom: 12 },
+  modesContainer: { flexDirection: 'row', gap: 12 },
   modeBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.gray200,
-    backgroundColor: Colors.gray50,
-    alignItems: 'center',
-    gap: 4,
-  },
-  modeBtnActive: { backgroundColor: Colors.emerald50, borderColor: Colors.emerald600 },
-  modeBtnLabel: { fontSize: 12, fontWeight: '500', color: Colors.gray600 },
-  modeBtnLabelActive: { color: Colors.emerald700 },
-
-  // Map card
-  mapCardOuter: { borderRadius: 16, overflow: 'hidden' },
-  miniMap: { height: 220, position: 'relative' },
-  originDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(5,150,105,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  originDotInner: { width: 12, height: 12, backgroundColor: Colors.emerald600, borderRadius: 6 },
-  mapOverlayLoader: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // Inputs
-  inputsWrap: { padding: 16, gap: 0 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  inputDotGreen: { width: 32, height: 32, backgroundColor: Colors.emerald100, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  inputDotGreenInner: { width: 12, height: 12, backgroundColor: Colors.emerald600, borderRadius: 6 },
-  inputDotRed: { width: 32, height: 32, backgroundColor: Colors.red100, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  inputTextWrap: { flex: 1 },
-  routeInputText: { color: Colors.gray900, fontSize: 14, fontWeight: '500' },
-  routeInputPlaceholder: { color: Colors.gray400, fontWeight: '400' },
-  inputDivider: { height: 20, borderLeftWidth: 2, borderStyle: 'dashed', borderColor: Colors.gray200, marginLeft: 15 },
-
-  findBtn: {
-    backgroundColor: Colors.emerald600,
-    flexDirection: 'row',
+    height: 80,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 14,
-    minHeight: 50,
-  },
-  findBtnDisabled: { opacity: 0.55 },
-  findBtnText: { color: Colors.white, fontWeight: '600', fontSize: 15 },
-
-  // Partners section
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { color: Colors.gray900, fontWeight: '700', fontSize: 17 },
-  partnerListWrap: { gap: 12 },
-  partnerCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     ...Shadow.sm,
   },
-  partnerLogo: { fontSize: 32, width: 48, textAlign: 'center' },
-  partnerInfo: { flex: 1 },
-  partnerName: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 2 },
-  partnerOffer: { color: Colors.emerald600, fontSize: 13, fontWeight: '500', marginBottom: 4 },
-  partnerDistRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  partnerDist: { color: Colors.gray400, fontSize: 12 },
-  partnerPointsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.emerald50,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.emerald100,
-  },
-  partnerPointsText: { color: Colors.emerald600, fontWeight: '700', fontSize: 13 },
-
-  // Modal
+  modeLabel: { fontSize: 13, fontWeight: '600' },
+  card: { borderRadius: 16, overflow: 'hidden', ...Shadow.md },
+  mapCardOuter: { borderRadius: 16, overflow: 'hidden' },
+  miniMap: { height: 220, position: 'relative' },
+  originDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(5,150,105,0.25)', alignItems: 'center', justifyContent: 'center' },
+  originDotInner: { width: 12, height: 12, backgroundColor: Colors.emerald600, borderRadius: 6 },
+  findBtn: { backgroundColor: Colors.emerald600, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, minHeight: 50 },
+  findBtnDisabled: { opacity: 0.55 },
+  findBtnText: { color: Colors.white, fontWeight: '600', fontSize: 15 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 20, fontWeight: '700' },
+  sectionLink: { fontWeight: '600', fontSize: 14 },
+  partnersScroll: { marginHorizontal: -24 },
+  partnersContent: { paddingHorizontal: 24, gap: 16 },
+  partnerCard: { width: 160, borderRadius: 20, padding: 16, gap: 8, ...Shadow.md },
+  partnerLogo: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  partnerLogoEmoji: { fontSize: 24 },
+  partnerName: { fontWeight: '700', fontSize: 15 },
+  partnerOffer: { fontWeight: '600', fontSize: 13 },
+  partnerDist: { fontSize: 12 },
   modalContainer: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: Colors.black40 },
   sheet: { backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, ...Shadow.xl },

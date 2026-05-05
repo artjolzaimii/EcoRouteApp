@@ -1,20 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  ActivityIndicator,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { usePreferences } from '@/context/PreferencesContext';
 import { api } from '@/lib/api';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ProfileData = {
   fullName: string;
@@ -45,23 +49,23 @@ const menuSections: { title: string; items: MenuItem[] }[] = [
     items: [
       { icon: 'person-outline', label: 'Edit Profile', route: '/edit-profile' },
       { icon: 'notifications-outline', label: 'Notifications', toggle: true },
-      { icon: 'shield-checkmark-outline', label: 'Privacy & Security' },
+      { icon: 'shield-checkmark-outline', label: 'Privacy & Security', route: '/privacy-security' },
     ],
   },
   {
     title: 'App Settings',
     items: [
       { icon: 'location-outline', label: 'Saved Routes', route: '/saved-routes' },
-      { icon: 'settings-outline', label: 'Preferences' },
-      { icon: 'card-outline', label: 'Payment Methods' },
+      { icon: 'settings-outline', label: 'Preferences', route: '/preferences' },
+      { icon: 'card-outline', label: 'Payment Methods', route: '/payment-methods' },
     ],
   },
   {
     title: 'Community',
     items: [
-      { icon: 'people-outline', label: 'Friends & Leaderboard' },
+      { icon: 'people-outline', label: 'Friends & Leaderboard', route: '/(tabs)/rewards' },
       { icon: 'share-social-outline', label: 'Invite Friends' },
-      { icon: 'trophy-outline', label: 'Challenges' },
+      { icon: 'trophy-outline', label: 'Challenges', route: '/(tabs)/rewards' },
     ],
   },
 ];
@@ -78,7 +82,7 @@ function formatMemberSince(iso: string): string {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, session } = useAuth();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const { formatDistance, formatCO2, theme, prefs, toggleNotifications } = usePreferences();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -99,13 +103,34 @@ export default function ProfileScreen() {
   useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
   const handleLogOut = async () => {
-    await signOut();
-    router.replace('/log-in');
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut();
+          router.replace('/log-in');
+        },
+      },
+    ]);
   };
 
-  const displayName = profile?.fullName ?? session?.user?.email?.split('@')[0] ?? 'You';
+  const handleInviteFriends = async () => {
+    try {
+      await Share.share({
+        title: 'Join me on EcoRoute!',
+        message:
+          '🌿 I\'ve been using EcoRoute to travel sustainably and earn rewards. Join me! Download the app: https://ecoroute.app',
+      });
+    } catch {
+      // user dismissed share sheet — no action needed
+    }
+  };
+
+  const displayName = prefs.fullName ?? profile?.fullName ?? session?.user?.email?.split('@')[0] ?? 'You';
   const displayEmail = profile?.email ?? session?.user?.email ?? '';
-  const totalCo2Kg = profile?.stats ? gramsToKg(profile.stats.totalCo2SavedG) : '0.0';
+  const totalCo2Display = profile?.stats ? formatCO2(profile.stats.totalCo2SavedG) : '0.0 kg CO₂';
   const memberSince = profile?.createdAt ? formatMemberSince(profile.createdAt) : '—';
 
   const statCards = [
@@ -124,16 +149,16 @@ export default function ProfileScreen() {
       color: Colors.yellow500,
     },
     {
-      label: 'Points',
-      value: String(profile?.stats?.totalPoints ?? 0),
-      icon: 'flash-outline' as const,
+      label: 'Distance',
+      value: profile?.stats ? formatDistance(profile.stats.totalDistanceKm) : formatDistance(0),
+      icon: 'navigate-outline' as const,
       bg: Colors.blue100,
       color: Colors.blue600,
     },
   ];
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <LinearGradient
         colors={[Colors.indigo600, Colors.purple600]}
@@ -146,7 +171,7 @@ export default function ProfileScreen() {
             <Ionicons name="person-outline" size={24} color={Colors.white} />
             <Text style={styles.headerTitle}>Profile</Text>
           </View>
-          <TouchableOpacity activeOpacity={0.7}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/preferences')}>
             <Ionicons name="settings-outline" size={24} color={Colors.white} />
           </TouchableOpacity>
         </View>
@@ -160,6 +185,8 @@ export default function ProfileScreen() {
             >
               {loading ? (
                 <ActivityIndicator color={Colors.white} />
+              ) : prefs.photoUri ? (
+                <Image source={{ uri: prefs.photoUri }} style={styles.avatarImg} />
               ) : (
                 <Text style={styles.avatarInitials}>
                   {displayName.charAt(0).toUpperCase()}
@@ -193,7 +220,7 @@ export default function ProfileScreen() {
 
           <View style={styles.impactRow}>
             <Text style={styles.impactLabel}>Total Environmental Impact</Text>
-            <Text style={styles.impactValue}>{totalCo2Kg} kg CO₂</Text>
+            <Text style={styles.impactValue}>{totalCo2Display}</Text>
           </View>
         </View>
       </LinearGradient>
@@ -202,12 +229,12 @@ export default function ProfileScreen() {
       <View style={styles.statsWrap}>
         <View style={styles.statsRow}>
           {statCards.map((s) => (
-            <View key={s.label} style={[styles.statCard, Shadow.lg, { backgroundColor: Colors.white }]}>
+            <View key={s.label} style={[styles.statCard, Shadow.lg, { backgroundColor: theme.card }]}>
               <View style={[styles.statIconBox, { backgroundColor: s.bg }]}>
                 <Ionicons name={s.icon} size={20} color={s.color} />
               </View>
-              <Text style={styles.statValue}>{s.value}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>{s.value}</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{s.label}</Text>
             </View>
           ))}
         </View>
@@ -217,8 +244,8 @@ export default function ProfileScreen() {
       <View style={styles.menuWrap}>
         {menuSections.map((section) => (
           <View key={section.title} style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>{section.title}</Text>
-            <View style={styles.menuCard}>
+            <Text style={[styles.menuSectionTitle, { color: theme.textSecondary }]}>{section.title}</Text>
+            <View style={[styles.menuCard, { backgroundColor: theme.card }]}>
               {section.items.map((item, idx) => {
                 const isLast = idx === section.items.length - 1;
                 return (
@@ -226,18 +253,24 @@ export default function ProfileScreen() {
                     key={item.label}
                     style={[styles.menuItem, !isLast && styles.menuItemBorder]}
                     activeOpacity={0.7}
-                    onPress={item.route ? () => router.push(item.route as any) : undefined}
+                    onPress={
+                      item.label === 'Invite Friends'
+                        ? handleInviteFriends
+                        : item.route
+                          ? () => router.push(item.route as any)
+                          : undefined
+                    }
                   >
                     <View style={styles.menuItemLeft}>
                       <View style={styles.menuItemIconBox}>
-                        <Ionicons name={item.icon} size={20} color={Colors.gray600} />
+                        <Ionicons name={item.icon} size={20} color={theme.textSecondary} />
                       </View>
-                      <Text style={styles.menuItemLabel}>{item.label}</Text>
+                      <Text style={[styles.menuItemLabel, { color: theme.text }]}>{item.label}</Text>
                     </View>
                     {item.toggle ? (
                       <Switch
-                        value={notificationsEnabled}
-                        onValueChange={setNotificationsEnabled}
+                        value={prefs.notificationsEnabled}
+                        onValueChange={toggleNotifications}
                         trackColor={{ false: Colors.gray300, true: Colors.emerald600 }}
                         thumbColor={Colors.white}
                       />
@@ -268,9 +301,9 @@ export default function ProfileScreen() {
         </LinearGradient>
 
         {/* Log Out */}
-        <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={handleLogOut}>
-          <Ionicons name="log-out-outline" size={20} color={Colors.red600} />
-          <Text style={styles.logoutText}>Log Out</Text>
+        <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card }]} activeOpacity={0.85} onPress={handleLogOut}>
+          <Ionicons name="log-out-outline" size={20} color={theme.red600} />
+          <Text style={[styles.logoutText, { color: theme.red600 }]}>Log Out</Text>
         </TouchableOpacity>
 
         {/* Version */}
@@ -305,7 +338,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.4)',
+    overflow: 'hidden',
   },
+  avatarImg: { width: 80, height: 80 },
   avatarInitials: { color: Colors.white, fontSize: 32, fontWeight: '700' },
   profileInfo: { flex: 1 },
   profileNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
@@ -345,9 +380,9 @@ const styles = StyleSheet.create({
   },
   menuCard: { backgroundColor: Colors.white, borderRadius: 16, overflow: 'hidden', ...Shadow.sm },
   menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
-  menuItemBorder: { borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  menuItemBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuItemIconBox: { width: 40, height: 40, backgroundColor: Colors.gray100, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  menuItemIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   menuItemLabel: { color: Colors.gray900, fontWeight: '500', fontSize: 15 },
   memberCard: { borderRadius: 16, padding: 24 },
   memberRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },

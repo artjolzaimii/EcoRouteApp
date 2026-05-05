@@ -1,19 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Colors, Shadow } from '@/constants/theme';
+import { usePreferences } from '@/context/PreferencesContext';
+import { api } from '@/lib/api';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
   ActivityIndicator,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
-import { api } from '@/lib/api';
 
 type Coupon = {
   id: string;
@@ -70,6 +71,7 @@ const ICON_COLORS: { bg: string; icon: string }[] = [
 
 export default function RewardsScreen() {
   const insets = useSafeAreaInsets();
+  const { formatDistance, prefs, theme } = usePreferences();
   const [activeTab, setActiveTab] = useState<'available' | 'redeemed'>('available');
   const [coupons, setCoupons] = useState<CouponsData>({ available: [], mine: [] });
   const [userPoints, setUserPoints] = useState(0);
@@ -125,8 +127,8 @@ export default function RewardsScreen() {
 
   // Hardcoded challenges (could be backed by API later)
   const challenges = [
-    { title: 'Weekend Warrior', description: 'Complete 5 eco-trips this weekend', reward: '+200 points', progress: 0, total: 5 },
-    { title: 'Bike Champion', description: 'Bike 50km this month', reward: '+500 points', progress: 0, total: 50 },
+    { title: 'Weekend Warrior', description: 'Complete 5 eco-trips this weekend', reward: '+200 points', progress: 0, total: 5, unit: 'trips' },
+    { title: 'Bike Champion', description: `Bike ${formatDistance(50)} this month`, reward: '+500 points', progress: 0, total: 50, unit: 'km' },
   ];
 
   const nextRewardThreshold = coupons.available.length > 0
@@ -136,7 +138,7 @@ export default function RewardsScreen() {
   const progressPct = Math.min((userPoints / nextRewardThreshold) * 100, 100);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <LinearGradient
         colors={[Colors.purple600, Colors.pink600]}
@@ -176,22 +178,22 @@ export default function RewardsScreen() {
 
       {/* Active Challenges */}
       <View style={styles.challengeWrap}>
-        <View style={[styles.card, styles.challengeCard]}>
+        <View style={[styles.card, styles.challengeCard, { backgroundColor: theme.card }]}>
           <View style={styles.challengeHeader}>
-            <Text style={styles.challengeTitle}>Active Challenges</Text>
-            <Ionicons name="star" size={18} color={Colors.yellow500} />
+            <Text style={[styles.challengeTitle, { color: theme.text }]}>Active Challenges</Text>
+            <Ionicons name="star" size={18} color={theme.yellow500} />
           </View>
           <View style={styles.challengeList}>
             {challenges.map((c) => {
               const pct = (c.progress / c.total) * 100;
               return (
-                <View key={c.title} style={styles.challengeItem}>
+                <View key={c.title} style={[styles.challengeItem, { borderLeftColor: theme.primary }]}>
                   <View style={styles.challengeItemTop}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.challengeName}>{c.title}</Text>
-                      <Text style={styles.challengeDesc}>{c.description}</Text>
+                      <Text style={[styles.challengeName, { color: theme.text }]}>{c.title}</Text>
+                      <Text style={[styles.challengeDesc, { color: theme.textSecondary }]}>{c.description}</Text>
                     </View>
-                    <Text style={styles.challengeReward}>{c.reward}</Text>
+                    <Text style={[styles.challengeReward, { color: theme.primary }]}>{c.reward}</Text>
                   </View>
                   <View style={styles.challengeBarRow}>
                     <View style={styles.challengeTrack}>
@@ -202,7 +204,9 @@ export default function RewardsScreen() {
                         style={[styles.challengeFill, { width: `${pct}%` as any }]}
                       />
                     </View>
-                    <Text style={styles.challengeProgress}>{c.progress}/{c.total}</Text>
+                    <Text style={styles.challengeProgress}>
+                      {c.unit === 'km' ? formatDistance(c.progress) : c.progress} / {c.unit === 'km' ? formatDistance(c.total) : c.total}
+                    </Text>
                   </View>
                 </View>
               );
@@ -213,15 +217,15 @@ export default function RewardsScreen() {
 
       {/* Tab Selector */}
       <View style={styles.tabSelector}>
-        <View style={styles.tabBar}>
+        <View style={[styles.tabBar, { backgroundColor: theme.card }]}>
           {(['available', 'redeemed'] as const).map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
+              style={[styles.tabBtn, activeTab === tab && { backgroundColor: theme.primary }]}
               onPress={() => setActiveTab(tab)}
               activeOpacity={0.85}
             >
-              <Text style={[styles.tabBtnText, activeTab === tab && styles.tabBtnTextActive]}>
+              <Text style={[styles.tabBtnText, { color: activeTab === tab ? Colors.white : theme.textSecondary }]}>
                 {tab === 'available' ? 'Available' : 'My Rewards'}
               </Text>
             </TouchableOpacity>
@@ -245,7 +249,7 @@ export default function RewardsScreen() {
               const c = ICON_COLORS[idx % ICON_COLORS.length];
               const isRedeemingThis = redeeming === coupon.id;
               return (
-                <View key={coupon.id} style={[styles.rewardCard, !canAfford && styles.rewardCardDim]}>
+                <View key={coupon.id} style={[styles.rewardCard, { backgroundColor: theme.card }, !canAfford && styles.rewardCardDim]}>
                   <View style={styles.rewardCardInner}>
                     <View style={[styles.rewardIconBox, { backgroundColor: c.bg }]}>
                       <Ionicons name="gift-outline" size={28} color={c.icon} />
@@ -253,26 +257,26 @@ export default function RewardsScreen() {
                     <View style={styles.rewardInfo}>
                       <View style={styles.rewardInfoTop}>
                         <View>
-                          <Text style={styles.rewardName}>{coupon.title}</Text>
-                          <Text style={styles.rewardPartner}>{coupon.partner.name}</Text>
+                          <Text style={[styles.rewardName, { color: theme.text }]}>{coupon.title}</Text>
+                          <Text style={[styles.rewardPartner, { color: theme.textSecondary }]}>{coupon.partner.name}</Text>
                         </View>
                       </View>
 
                       <View style={styles.rewardMeta}>
-                        <Text style={styles.discountText}>{formatDiscount(coupon)}</Text>
+                        <Text style={[styles.discountText, { color: theme.primary }]}>{formatDiscount(coupon)}</Text>
                         <View style={styles.expiryRow}>
-                          <Ionicons name="time-outline" size={12} color={Colors.gray400} />
-                          <Text style={styles.expiryText}>{formatExpiry(coupon.expiresAt)}</Text>
+                          <Ionicons name="time-outline" size={12} color={theme.textSecondary} />
+                          <Text style={[styles.expiryText, { color: theme.textSecondary }]}>{formatExpiry(coupon.expiresAt)}</Text>
                         </View>
                       </View>
 
                       <View style={styles.rewardBottom}>
                         <View style={styles.rewardPointsRow}>
-                          <Ionicons name="sparkles-outline" size={14} color={Colors.purple500} />
-                          <Text style={styles.rewardPointsText}>{coupon.pointsCost} points</Text>
+                          <Ionicons name="sparkles-outline" size={14} color={theme.primary} />
+                          <Text style={[styles.rewardPointsText, { color: theme.text }]}>{coupon.pointsCost} points</Text>
                         </View>
                         <TouchableOpacity
-                          style={[styles.redeemBtn, (!canAfford || isRedeemingThis) && styles.redeemBtnLocked]}
+                          style={[styles.redeemBtn, { backgroundColor: theme.primary }, (!canAfford || isRedeemingThis) && { backgroundColor: theme.gray200 }]}
                           disabled={!canAfford || isRedeemingThis}
                           activeOpacity={0.85}
                           onPress={() => handleRedeem(coupon)}
@@ -315,31 +319,31 @@ export default function RewardsScreen() {
             coupons.mine.map((uc) => {
               const isUsed = !!uc.usedAt;
               return (
-                <View key={uc.id} style={styles.redeemedCard}>
+                <View key={uc.id} style={[styles.redeemedCard, { backgroundColor: theme.card }]}>
                   <View style={styles.redeemedTop}>
                     <View>
-                      <Text style={styles.rewardName}>{uc.coupon.title}</Text>
-                      <Text style={styles.rewardPartner}>{uc.coupon.partner.name}</Text>
+                      <Text style={[styles.rewardName, { color: theme.text }]}>{uc.coupon.title}</Text>
+                      <Text style={[styles.rewardPartner, { color: theme.textSecondary }]}>{uc.coupon.partner.name}</Text>
                     </View>
-                    <View style={[styles.statusBadge, isUsed ? styles.statusUsed : styles.statusActive]}>
-                      <Text style={[styles.statusText, isUsed ? styles.statusTextUsed : styles.statusTextActive]}>
+                    <View style={[styles.statusBadge, isUsed ? styles.statusUsed : { backgroundColor: theme.emerald100 }]}>
+                      <Text style={[styles.statusText, isUsed ? styles.statusTextUsed : { color: theme.emerald600 }]}>
                         {isUsed ? 'Used' : 'Active'}
                       </Text>
                     </View>
                   </View>
 
-                  <View style={styles.codeBox}>
-                    <Text style={styles.codeBoxLabel}>Redemption Code</Text>
-                    <Text style={styles.codeText}>{uc.code}</Text>
+                  <View style={[styles.codeBox, { backgroundColor: theme.gray50 }]}>
+                    <Text style={[styles.codeBoxLabel, { color: theme.textSecondary }]}>Redemption Code</Text>
+                    <Text style={[styles.codeText, { color: theme.text }]}>{uc.code}</Text>
                   </View>
 
                   <View style={styles.redeemedBottom}>
-                    <Text style={styles.redeemedDate}>
+                    <Text style={[styles.redeemedDate, { color: theme.textSecondary }]}>
                       Redeemed: {new Date(uc.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     </Text>
                     {!isUsed && (
                       <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/coupon-redeemed')}>
-                        <Text style={styles.useNowText}>Use Now</Text>
+                        <Text style={[styles.useNowText, { color: theme.primary }]}>Use Now</Text>
                       </TouchableOpacity>
                     )}
                   </View>

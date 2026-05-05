@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Animated,
-} from 'react-native';
+import { Colors, Shadow } from '@/constants/theme';
+import { usePreferences } from '@/context/PreferencesContext';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
@@ -24,9 +24,9 @@ interface SavedRoute {
   name: string;
   origin: string;
   destination: string;
-  distance: string;
+  distanceKm: number;
   duration: string;
-  co2Saved: string;
+  co2SavedG: number;
   modes: TransportMode[];
   dateSaved: string;
 }
@@ -43,9 +43,9 @@ const initialRoutes: SavedRoute[] = [
     name: 'Morning Commute',
     origin: 'Home',
     destination: 'Office',
-    distance: '5.2 km',
+    distanceKm: 5.2,
     duration: '18 min',
-    co2Saved: '1.2 kg',
+    co2SavedG: 1200,
     modes: ['bike', 'bus'],
     dateSaved: 'Mar 15, 2026',
   },
@@ -54,9 +54,9 @@ const initialRoutes: SavedRoute[] = [
     name: 'Grocery Trip',
     origin: 'Office',
     destination: 'Whole Foods Market',
-    distance: '2.1 km',
+    distanceKm: 2.1,
     duration: '8 min',
-    co2Saved: '0.5 kg',
+    co2SavedG: 500,
     modes: ['walk', 'bike'],
     dateSaved: 'Mar 10, 2026',
   },
@@ -65,9 +65,9 @@ const initialRoutes: SavedRoute[] = [
     name: 'Gym Route',
     origin: 'Home',
     destination: 'Green Fitness Center',
-    distance: '3.8 km',
+    distanceKm: 3.8,
     duration: '14 min',
-    co2Saved: '0.8 kg',
+    co2SavedG: 800,
     modes: ['bike'],
     dateSaved: 'Mar 5, 2026',
   },
@@ -75,6 +75,7 @@ const initialRoutes: SavedRoute[] = [
 
 export default function SavedRoutesScreen() {
   const insets = useSafeAreaInsets();
+  const { formatDistance, formatCO2, theme, prefs } = usePreferences();
   const [routes, setRoutes] = useState<SavedRoute[]>(initialRoutes);
 
   const handleDelete = (id: string) => {
@@ -82,28 +83,28 @@ export default function SavedRoutesScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+    <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <StatusBar style={prefs.appearance === 'dark' ? 'light' : 'dark'} />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
-          <Ionicons name="arrow-back-outline" size={20} color="#1A1A1A" />
+        <TouchableOpacity style={[styles.backBtn, { backgroundColor: theme.card }]} onPress={() => router.back()} activeOpacity={0.9}>
+          <Ionicons name="arrow-back-outline" size={20} color={theme.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Saved Routes</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Saved Routes</Text>
       </View>
 
       {routes.length === 0 ? (
         /* Empty State */
         <View style={styles.emptyWrap}>
-          <View style={styles.emptyCircle}>
-            <Ionicons name="bookmark-outline" size={64} color={Colors.gray300} />
+          <View style={[styles.emptyCircle, { backgroundColor: theme.card }]}>
+            <Ionicons name="bookmark-outline" size={64} color={theme.gray300} />
           </View>
-          <Text style={styles.emptyTitle}>No saved routes yet</Text>
-          <Text style={styles.emptySubtitle}>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>No saved routes yet</Text>
+          <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
             Start a trip to save your favorite routes for quick access
           </Text>
-          <TouchableOpacity style={styles.findBtn} onPress={() => router.replace('/(tabs)')} activeOpacity={0.9}>
+          <TouchableOpacity style={[styles.findBtn, { backgroundColor: theme.primary }]} onPress={() => router.replace('/(tabs)')} activeOpacity={0.9}>
             <Text style={styles.findBtnText}>Find a Route</Text>
           </TouchableOpacity>
         </View>
@@ -114,55 +115,57 @@ export default function SavedRoutesScreen() {
           showsVerticalScrollIndicator={false}
         >
           {routes.map((route) => (
-            <View key={route.id} style={styles.routeCard}>
+            <View key={route.id} style={[styles.routeCard, { backgroundColor: theme.card }]}>
               {/* Top: info + delete */}
               <View style={styles.routeTop}>
                 <View style={styles.routeInfo}>
-                  <Text style={styles.routeName}>{route.name}</Text>
+                  <Text style={[styles.routeName, { color: theme.text }]}>{route.name}</Text>
 
                   {/* Origin/destination */}
                   <View style={styles.locationWrap}>
                     <View style={styles.locationRow}>
-                      <View style={styles.locDotGreen} />
-                      <Text style={styles.locationText}>{route.origin}</Text>
+                      <View style={[styles.locDotGreen, { backgroundColor: theme.primary }]} />
+                      <Text style={[styles.locationText, { color: theme.textSecondary }]}>{route.origin}</Text>
                     </View>
-                    <View style={styles.locationConnector} />
+                    <View style={[styles.locationConnector, { borderColor: theme.gray300 }]} />
                     <View style={styles.locationRow}>
                       <Ionicons name="location-outline" size={14} color={Colors.red600} />
-                      <Text style={styles.locationText}>{route.destination}</Text>
+                      <Text style={[styles.locationText, { color: theme.textSecondary }]}>{route.destination}</Text>
                     </View>
                   </View>
 
                   {/* Stats */}
-                  <View style={styles.statsRow}>
-                    <View style={styles.statItem}>
-                      <Ionicons name="location-outline" size={14} color={Colors.gray600} />
-                      <Text style={styles.statText}>{route.distance}</Text>
+                  <View style={styles.routeMeta}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="navigate-outline" size={14} color={theme.textSecondary} />
+                      <Text style={[styles.metaText, { color: theme.textSecondary }]}>{formatDistance(route.distanceKm)}</Text>
                     </View>
-                    <View style={styles.statItem}>
-                      <Ionicons name="time-outline" size={14} color={Colors.gray600} />
-                      <Text style={styles.statText}>{route.duration}</Text>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
+                      <Text style={[styles.metaText, { color: theme.textSecondary }]}>{route.duration}</Text>
                     </View>
-                    <View style={styles.statItem}>
-                      <Ionicons name="leaf-outline" size={14} color={ECO_GREEN} />
-                      <Text style={[styles.statText, { color: ECO_GREEN, fontWeight: '600' }]}>{route.co2Saved}</Text>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="leaf-outline" size={14} color={theme.primary} />
+                      <Text style={[styles.metaText, { color: theme.primary, fontWeight: '700' }]}>
+                        {formatCO2(route.co2SavedG)}
+                      </Text>
                     </View>
                   </View>
 
                   {/* Transport modes */}
                   <View style={styles.modesRow}>
                     {route.modes.map((mode, idx) => (
-                      <View key={idx} style={styles.modeIconBox}>
-                        <Ionicons name={modeIcon[mode]} size={18} color={ECO_GREEN} />
+                      <View key={idx} style={[styles.modeIconBox, { backgroundColor: theme.primary + '20' }]}>
+                        <Ionicons name={modeIcon[mode]} size={18} color={theme.primary} />
                       </View>
                     ))}
                   </View>
 
-                  <Text style={styles.dateSaved}>Saved on {route.dateSaved}</Text>
+                  <Text style={[styles.dateSaved, { color: theme.textSecondary }]}>Saved on {route.dateSaved}</Text>
                 </View>
 
                 <TouchableOpacity
-                  style={styles.deleteBtn}
+                  style={[styles.deleteBtn, { backgroundColor: theme.gray100 }]}
                   onPress={() => handleDelete(route.id)}
                   activeOpacity={0.7}
                 >
@@ -172,7 +175,7 @@ export default function SavedRoutesScreen() {
 
               {/* Use route button */}
               <TouchableOpacity
-                style={styles.useBtn}
+                style={[styles.useBtn, { backgroundColor: theme.primary }]}
                 onPress={() => router.push('/(tabs)/routes')}
                 activeOpacity={0.9}
               >
@@ -243,9 +246,9 @@ const styles = StyleSheet.create({
   locationConnector: { width: 1, height: 20, borderLeftWidth: 2, borderStyle: 'dashed', borderColor: Colors.gray300, marginLeft: 5 },
   locationText: { color: Colors.gray700, fontSize: 14 },
 
-  statsRow: { flexDirection: 'row', gap: 16, marginBottom: 12 },
-  statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statText: { color: Colors.gray600, fontSize: 13 },
+  routeMeta: { flexDirection: 'row', gap: 16, marginTop: 4 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaText: { color: Colors.gray600, fontSize: 13, fontWeight: '500' },
 
   modesRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   modeIconBox: { width: 32, height: 32, backgroundColor: Colors.emerald100, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
