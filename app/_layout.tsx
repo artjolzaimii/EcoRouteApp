@@ -57,6 +57,10 @@ export default function RootLayout() {
 
           {/* Profile */}
           <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
+          <Stack.Screen name="notifications" options={{ headerShown: false }} />
+          <Stack.Screen name="preferences" options={{ headerShown: false }} />
+          <Stack.Screen name="privacy-security" options={{ headerShown: false }} />
+          <Stack.Screen name="invite-friends" options={{ headerShown: false }} />
 
           {/* Rewards / Coupons */}
           <Stack.Screen name="coupon-detail" options={{ headerShown: false }} />

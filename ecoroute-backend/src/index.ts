@@ -10,6 +10,7 @@ import badgesRoutes from "./routes/badges.routes";
 import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
 import impactRoutes from "./routes/impact.routes";
+import notificationsRoutes from "./routes/notifications.routes";
 import partnersRoutes from "./routes/partners.routes";
 import routingRoutes from "./routes/routing.routes";
 import usersRoutes from "./routes/users.routes";
@@ -50,6 +51,7 @@ app.use("/api/partners", partnersRoutes);
 app.use("/api/coupons", couponsRoutes);
 app.use("/api/badges", badgesRoutes);
 app.use("/api/challenges", challengesRoutes);
+app.use("/api/notifications", notificationsRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
