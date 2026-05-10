@@ -12,6 +12,8 @@ export type TripMode =
   | 'EV'
   | 'DRIVING';
 
+export type RouteMood = 'RELAXED' | 'HURRY' | 'EXERCISE' | 'CHEAPEST';
+
 export type RouteStep = {
   mode: string;
   instruction: string;
@@ -66,6 +68,7 @@ export type RouteSearch = {
   routes: RouteOption[];
   selectedIndex: number;
   preferredMode: TripMode;
+  mood?: RouteMood;
   // Optional: full EcoRoutesResponse when using the new API format
   ecoResponse?: EcoRoutesResponse;
 };
@@ -130,6 +133,7 @@ export interface EcoRoute {
   greenPoints: number;
   recommended: boolean;
   recommendationReason?: string;
+  moodReason?: string;
   transferCount?: number;
   requiresBooking?: boolean;
   bookingUrl?: string;
@@ -186,6 +190,32 @@ export interface Badge {
   pointsReward: number;
   earned: boolean;
   earnedAt?: string;
+}
+
+export interface SavedRouteItem {
+  id: string;
+  profileId: string;
+  originAddress: string;
+  destAddress: string;
+  originLat: number;
+  originLng: number;
+  destLat: number;
+  destLng: number;
+  mode: string;
+  subType: string | null;
+  distanceKm: number;
+  durationMin: number;
+  co2Grams: number;
+  savedVsCar: number;
+  carEquivalentCO2: number;
+  carbonScore: number;
+  greenPoints: number;
+  finalScore: number;
+  mood: string | null;
+  moodReason: string | null;
+  routeData: EcoRoute;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ImpactData {

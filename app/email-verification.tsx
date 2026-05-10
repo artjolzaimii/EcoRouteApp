@@ -1,21 +1,25 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { router } from 'expo-router';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Alert, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
-const EMAIL = 'you@example.com';
 
 export default function EmailVerificationScreen() {
   const insets = useSafeAreaInsets();
+  const { email } = useLocalSearchParams<{ email?: string }>();
+  const { resendVerificationEmail } = useAuth();
+  const [resending, setResending] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const iconScale = useRef(new Animated.Value(0.8)).current;
   const iconOpacity = useRef(new Animated.Value(0)).current;
+  const displayEmail = typeof email === 'string' && email.length > 0 ? email : 'your email';
 
   useEffect(() => {
     Animated.sequence([
@@ -29,6 +33,23 @@ export default function EmailVerificationScreen() {
       ]),
     ]).start();
   }, []);
+
+  const handleResend = async () => {
+    if (!email) {
+      Alert.alert('Missing email', 'Go back to sign up and enter your email again.');
+      return;
+    }
+
+    setResending(true);
+    try {
+      await resendVerificationEmail(email);
+      Alert.alert('Email sent', 'Check your inbox for a new verification link.');
+    } catch (err: any) {
+      Alert.alert('Resend failed', err.message ?? 'Could not resend the verification email.');
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -51,13 +72,22 @@ export default function EmailVerificationScreen() {
           {/* Subtitle */}
           <Text style={styles.subtitle}>
             We sent a verification link to{'\n'}
-            <Text style={styles.email}>{EMAIL}</Text>
+            <Text style={styles.email}>{displayEmail}</Text>
           </Text>
 
           {/* Actions */}
           <View style={styles.actionsWrap}>
-            <TouchableOpacity style={styles.resendBtn} activeOpacity={0.9}>
-              <Text style={styles.resendBtnText}>Resend email</Text>
+            <TouchableOpacity
+              style={[styles.resendBtn, resending && styles.resendBtnDisabled]}
+              onPress={handleResend}
+              disabled={resending}
+              activeOpacity={0.9}
+            >
+              {resending ? (
+                <ActivityIndicator color={ECO_GREEN} />
+              ) : (
+                <Text style={styles.resendBtnText}>Resend email</Text>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.changeBtn} onPress={() => router.push('/sign-up')} activeOpacity={0.7}>
@@ -68,10 +98,10 @@ export default function EmailVerificationScreen() {
           {/* Continue */}
           <TouchableOpacity
             style={styles.continueBtn}
-            onPress={() => router.replace('/(tabs)')}
+            onPress={() => router.replace('/log-in')}
             activeOpacity={0.7}
           >
-            <Text style={styles.continueBtnText}>Continue to app →</Text>
+            <Text style={styles.continueBtnText}>Back to log in</Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -113,6 +143,7 @@ const styles = StyleSheet.create({
     borderColor: ECO_GREEN,
     ...Shadow.sm,
   },
+  resendBtnDisabled: { opacity: 0.65 },
   resendBtnText: { color: ECO_GREEN, fontWeight: '700', fontSize: 17 },
   changeBtn: { alignItems: 'center', paddingVertical: 8 },
   changeBtnText: { color: Colors.gray600, fontWeight: '600', fontSize: 16 },

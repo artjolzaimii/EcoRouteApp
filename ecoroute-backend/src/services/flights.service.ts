@@ -47,18 +47,40 @@ export const getFlightOption = async (
     if (!originAirport || !destAirport) return null;
     if (originAirport.iata_code === destAirport.iata_code) return null;
 
+    const originAirportLat = Number(originAirport.lat);
+    const originAirportLng = Number(originAirport.lng);
+    const destAirportLat   = Number(destAirport.lat);
+    const destAirportLng   = Number(destAirport.lng);
+
     const flightDistanceKm = haversineDistance(
-      Number(originAirport.lat), Number(originAirport.lng),
-      Number(destAirport.lat), Number(destAirport.lng)
-    ) + 95;
+      originAirportLat, originAirportLng,
+      destAirportLat,   destAirportLng
+    ) + 95; // add 95 km for takeoff/landing routing overhead
 
     const co2Grams = calculateFlightCO2(flightDistanceKm, "economy");
     const carEquivalentCO2 = Math.round(straightLineKm * 170);
 
-    const flightTimeMin    = Math.round((flightDistanceKm / 800) * 60);
-    const airportOverhead  = 150;
-    const airportTravelMin = 60;
-    const totalDurationMin = flightTimeMin + airportOverhead + airportTravelMin;
+    // Ground access/egress distances (airport ↔ user location)
+    const accessKm = haversineDistance(originLat, originLng, originAirportLat, originAirportLng);
+    const egressKm = haversineDistance(destAirportLat, destAirportLng, destLat, destLng);
+
+    // Ground travel to/from airports at ~40 km/h average (public transit / taxi)
+    const accessDurationMin  = Math.max(15, Math.round((accessKm  / 40) * 60));
+    const egressDurationMin  = Math.max(15, Math.round((egressKm  / 40) * 60));
+    const flightTimeMin      = Math.round((flightDistanceKm / 800) * 60);
+    const airportOverheadMin = 150; // check-in + security + boarding
+    const totalDurationMin   = accessDurationMin + airportOverheadMin + flightTimeMin + egressDurationMin;
+
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[Flight] ${originAirport.iata_code}→${destAirport.iata_code}: ` +
+        `access=${accessKm.toFixed(1)}km/${accessDurationMin}min ` +
+        `overhead=${airportOverheadMin}min ` +
+        `flight=${Math.round(flightDistanceKm)}km/${flightTimeMin}min ` +
+        `egress=${egressKm.toFixed(1)}km/${egressDurationMin}min ` +
+        `total=${totalDurationMin}min co2=${co2Grams}g`
+      );
+    }
 
     return {
       mode:            "PLANE",
@@ -69,17 +91,40 @@ export const getFlightOption = async (
       savedVsCar:      Math.max(0, carEquivalentCO2 - co2Grams),
       carbonScore:     Math.round(Math.max(0, 100 - (co2Grams / Math.max(1, carEquivalentCO2)) * 100)),
       greenPoints:     Math.round(Math.max(0, carEquivalentCO2 - co2Grams) / 10),
-      carbonBreakdown: [{
-        mode: "PLANE",
-        distanceKm: Math.round(flightDistanceKm),
-        co2Grams,
-        instruction: `Flight from ${originAirport.name} (${originAirport.iata_code}) to ${destAirport.name} (${destAirport.iata_code})`,
-      }],
+      // Three-segment breakdown: ground access → flight → ground egress.
+      // Each leg has startLocation/endLocation so the map draws realistic segments
+      // instead of a single straight line from origin to destination.
+      carbonBreakdown: [
+        {
+          mode: "TRANSIT",
+          distanceKm: Math.round(accessKm * 10) / 10,
+          co2Grams: 0,
+          instruction: `Travel to ${originAirport.name} (${originAirport.iata_code}) — approx. ${accessDurationMin} min`,
+          startLocation: { lat: originLat, lng: originLng },
+          endLocation:   { lat: originAirportLat, lng: originAirportLng },
+        },
+        {
+          mode: "PLANE",
+          distanceKm: Math.round(flightDistanceKm),
+          co2Grams,
+          instruction: `Flight ${originAirport.iata_code} → ${destAirport.iata_code} (${flightTimeMin} min) — includes ${Math.round(airportOverheadMin / 60 * 10) / 10}h airport time`,
+          startLocation: { lat: originAirportLat, lng: originAirportLng },
+          endLocation:   { lat: destAirportLat,   lng: destAirportLng   },
+        },
+        {
+          mode: "TRANSIT",
+          distanceKm: Math.round(egressKm * 10) / 10,
+          co2Grams: 0,
+          instruction: `Travel from ${destAirport.name} (${destAirport.iata_code}) to destination — approx. ${egressDurationMin} min`,
+          startLocation: { lat: destAirportLat, lng: destAirportLng },
+          endLocation:   { lat: destLat, lng: destLng },
+        },
+      ],
       originAirport:   `${originAirport.name} (${originAirport.iata_code})`,
       destAirport:     `${destAirport.name} (${destAirport.iata_code})`,
       requiresBooking: true,
       bookingUrl:      `https://www.google.com/flights#flt=${originAirport.iata_code}.${destAirport.iata_code}`,
-      note:            "Carbon estimate based on IPCC emission factors with radiative forcing index 1.9",
+      note:            "CO₂ estimate covers the flight segment only (IPCC factors, RFI 1.9). Ground access CO₂ not included.",
       dataSource:      "CALCULATED",
     };
 

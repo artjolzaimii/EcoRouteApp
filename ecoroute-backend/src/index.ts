@@ -12,6 +12,7 @@ import couponsRoutes from "./routes/coupons.routes";
 import impactRoutes from "./routes/impact.routes";
 import partnersRoutes from "./routes/partners.routes";
 import routingRoutes from "./routes/routing.routes";
+import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
 
 // Global error handler
@@ -50,6 +51,7 @@ app.use("/api/partners", partnersRoutes);
 app.use("/api/coupons", couponsRoutes);
 app.use("/api/badges", badgesRoutes);
 app.use("/api/challenges", challengesRoutes);
+app.use("/api/saved-routes", savedRoutesRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────

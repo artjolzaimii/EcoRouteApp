@@ -19,6 +19,9 @@ export { haversineDistance };
 
 export type JourneyType = "MICRO" | "URBAN" | "REGIONAL" | "INTERCITY" | "INTERNATIONAL";
 
+export type RouteMood = "RELAXED" | "HURRY" | "EXERCISE" | "CHEAPEST";
+export const VALID_MOODS = ["RELAXED", "HURRY", "EXERCISE", "CHEAPEST"] as const;
+
 export interface ScoredCandidate {
   mode: string;
   subType?: string;
@@ -67,6 +70,7 @@ export interface RankedRoute extends ScoredCandidate {
   finalScore: number;
   recommended: boolean;
   recommendationReason?: string;
+  moodReason?: string;
 }
 
 export interface PartnerPin {
@@ -109,45 +113,214 @@ export const detectJourneyType = (distanceKm: number): JourneyType => {
   return "INTERNATIONAL";
 };
 
+// Walking is realistic up to ~8 km (≈1h40 at 4.8 km/h). Beyond that we still
+// show a fallback estimate if the journey is very short, but don't fetch Google.
+const WALKING_MAX_KM = 8;
+const WALKING_SPEED_KMH = 4.8;
+
+// Cycling is realistic for urban / micro journeys up to 20 km.
+const CYCLING_MAX_KM = 20;
+const CYCLING_SPEED_KMH = 15;
+
+// ─────────────────────────────────────────────
+// Mood helpers
+// ─────────────────────────────────────────────
+
+/**
+ * Returns a raw cost estimate for a candidate (lower = cheaper).
+ * Real price data takes priority; mode-based proxy used otherwise.
+ */
+function estimateCandidateCost(candidate: ScoredCandidate): number {
+  if (candidate.price != null && candidate.price > 0) return candidate.price;
+  switch (candidate.mode.toUpperCase()) {
+    case "WALKING":   return 0;
+    case "BICYCLING":
+    case "CYCLING":   return 0;
+    case "MIXED":     return 1.5;  // free cycling leg + partial transit fare
+    case "TRANSIT":   return 2.5;  // typical urban single fare
+    case "TRAIN":     return 25;   // typical regional/intercity fare
+    case "PLANE":     return 150;  // typical flight
+    default:          return 5;
+  }
+}
+
+/**
+ * Returns physical effort score (0–100) for a mode and duration.
+ * Walking = most effort, plane = none.
+ * Very long walks reduce score slightly (exhausting, not optimal exercise).
+ */
+function calcPhysicalEffort(mode: string, durationMin: number): number {
+  let base: number;
+  switch (mode.toUpperCase()) {
+    case "WALKING":   base = 100; break;
+    case "BICYCLING":
+    case "CYCLING":   base = 85;  break;
+    case "MIXED":     base = 55;  break;  // cycling + transit combined
+    case "TRANSIT":   base = 15;  break;
+    case "TRAIN":     base = 10;  break;
+    case "PLANE":     base = 0;   break;
+    default:          base = 20;
+  }
+  // Diminishing returns for very long walks
+  if (mode.toUpperCase() === "WALKING" && durationMin > 90) {
+    return Math.max(40, base - Math.floor((durationMin - 90) / 10) * 5);
+  }
+  return base;
+}
+
+/**
+ * 5-dimension mood weights — all five values sum to 1.0.
+ *
+ * carbon   — prefer lower CO2 emissions
+ * time     — prefer faster routes
+ * comfort  — prefer fewer transfers / no booking hassle
+ * cost     — prefer cheaper routes (normalized across candidates)
+ * effort   — prefer physically active modes (walking > cycling > transit)
+ */
+function moodWeights(mood?: RouteMood): {
+  carbon: number; time: number; comfort: number; cost: number; effort: number;
+} {
+  switch (mood) {
+    case "HURRY":
+      // Time above all else; eco only as a secondary tie-breaker
+      return { carbon: 0.05, time: 0.85, comfort: 0.05, cost: 0.00, effort: 0.05 };
+    case "EXERCISE":
+      // Physical effort dominant; carbon rewards eco-active modes
+      return { carbon: 0.15, time: 0.05, comfort: 0.05, cost: 0.05, effort: 0.70 };
+    case "RELAXED":
+      // Fewest transfers + lowest stress first; eco second; slow is fine
+      return { carbon: 0.30, time: 0.10, comfort: 0.50, cost: 0.05, effort: 0.05 };
+    case "CHEAPEST":
+      // Cost dominates; time secondary; carbon mild incentive
+      return { carbon: 0.10, time: 0.15, comfort: 0.15, cost: 0.55, effort: 0.05 };
+    default:
+      // Eco-first default
+      return { carbon: 0.55, time: 0.25, comfort: 0.15, cost: 0.00, effort: 0.05 };
+  }
+}
+
+function moodRouteReason(mood: RouteMood, candidate: ScoredCandidate): string {
+  switch (mood) {
+    case "HURRY":
+      return "Fastest option — time prioritized for your 'In a hurry' preference";
+    case "EXERCISE":
+      return "Most active route — physical effort prioritized for your 'Exercise' preference";
+    case "RELAXED":
+      return "Smoothest journey — fewest transfers and lowest stress for your 'Relaxed' preference";
+    case "CHEAPEST":
+      return candidate.price != null
+        ? `Lowest fare (${candidate.currency ?? ""} ${candidate.price}) — cost prioritized for your 'Cheapest' preference`
+        : "Free or lowest-cost option — cost prioritized for your 'Cheapest' preference";
+  }
+}
+
 // ─────────────────────────────────────────────
 // applyWeightedRanking
 // ─────────────────────────────────────────────
 
-export const applyWeightedRanking = (candidates: ScoredCandidate[]): RankedRoute[] => {
+export const applyWeightedRanking = (candidates: ScoredCandidate[], mood?: RouteMood): RankedRoute[] => {
   if (candidates.length === 0) return [];
 
+  const weights = moodWeights(mood);
   const fastestDuration = Math.min(...candidates.map((c) => c.durationMin));
 
-  const ranked: RankedRoute[] = candidates.map((candidate) => {
-    const extraMinutes = candidate.durationMin - fastestDuration;
-    const timeScore = Math.max(0, Math.round(100 - (extraMinutes / 10) * 4));
+  // Pre-compute raw costs then normalise to a 0–100 score (100 = free/cheapest).
+  // Normalisation is relative to the candidate set, so comparison is fair
+  // regardless of whether the trip includes flights, trains, or only local modes.
+  const rawCosts = candidates.map(estimateCandidateCost);
+  const maxCost = Math.max(...rawCosts, 1); // guard against all-free sets
 
-    let practicalityScore = 100;
+  const ranked: RankedRoute[] = candidates.map((candidate, idx) => {
+    // ── Time score ────────────────────────────────────────────────────────────
+    // Ratio-based: fastest candidate = 100; 3× slower = 33.
+    const timeScore = Math.round(
+      Math.max(0, Math.min(100, (fastestDuration / candidate.durationMin) * 100))
+    );
+
+    // ── Comfort score ─────────────────────────────────────────────────────────
+    // Measures transfer hassle and booking friction — weighted heavily by RELAXED.
+    let comfortScore = 100;
     if (candidate.transferCount && candidate.transferCount > 0) {
-      practicalityScore -= candidate.transferCount * 8;
+      comfortScore -= candidate.transferCount * 8;
     }
     if (candidate.requiresBooking) {
-      practicalityScore -= 10;
+      comfortScore -= 10;
     }
-    practicalityScore = Math.max(0, practicalityScore);
+    // Long walks are tiring, not comfortable — penalise comfort dimension only.
+    // EXERCISE mood compensates via high effort weight, not a raw bonus.
+    if (candidate.mode === "WALKING") {
+      if (candidate.durationMin > 75)      comfortScore -= 50;
+      else if (candidate.durationMin > 45) comfortScore -= 20;
+    }
+    comfortScore = Math.max(0, comfortScore);
 
-    const finalScore = Math.round(
-      (candidate.carbonScore    * 0.60) +
-      (timeScore                * 0.25) +
-      (practicalityScore        * 0.15)
-    );
+    // ── Cost score ────────────────────────────────────────────────────────────
+    // 100 = free/cheapest relative to other candidates; 0 = most expensive.
+    const costScore = Math.round(100 - (rawCosts[idx] / maxCost) * 100);
+
+    // ── Physical effort score ─────────────────────────────────────────────────
+    const effortScore = calcPhysicalEffort(candidate.mode, candidate.durationMin);
+
+    // ── Weighted composite ────────────────────────────────────────────────────
+    // Inputs are all 0–100; weights sum to 1.0 → result naturally stays 0–100.
+    // No artificial cap before the estimated-cycling penalty.
+    const baseScore =
+      (candidate.carbonScore * weights.carbon)  +
+      (timeScore             * weights.time)    +
+      (comfortScore          * weights.comfort) +
+      (costScore             * weights.cost)    +
+      (effortScore           * weights.effort);
+
+    // Estimated cycling (Google bicycling API failed) should not beat real-data
+    // routes in default/HURRY mode. EXERCISE's high effort weight naturally
+    // offsets most of this penalty for users who want active travel.
+    const estimatedCyclingPenalty =
+      (candidate.mode === "BICYCLING" || candidate.mode === "CYCLING") &&
+      candidate.dataSource === "ESTIMATED" ? 20 : 0;
+
+    const finalScore = Math.max(0, Math.round(baseScore) - estimatedCyclingPenalty);
+
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[Ranking] ${candidate.mode}${candidate.subType ? `/${candidate.subType}` : ""}: ` +
+        `duration=${candidate.durationMin}min dist=${candidate.distanceKm}km ` +
+        `co2=${candidate.co2Grams}g carbonScore=${candidate.carbonScore} ` +
+        `timeScore=${timeScore} comfortScore=${comfortScore} ` +
+        `costScore=${costScore} effortScore=${effortScore} ` +
+        `baseScore=${Math.round(baseScore)} estimatedPenalty=${estimatedCyclingPenalty} ` +
+        `finalScore=${finalScore} dataSource=${candidate.dataSource ?? "?"} mood=${mood ?? "none"}`
+      );
+    }
 
     return {
       ...candidate,
       timeScore,
-      practicalityScore,
+      practicalityScore: comfortScore, // field kept for backwards compatibility
       finalScore,
       recommended: false,
       recommendationReason: undefined,
+      moodReason: undefined,
     };
   });
 
-  ranked.sort((a, b) => b.finalScore - a.finalScore);
+  // Primary sort: finalScore descending.
+  // Tie-breaker: shorter duration wins (faster route preferred when scores equal).
+  ranked.sort((a, b) => {
+    if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
+    return a.durationMin - b.durationMin;
+  });
+
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[Ranking] Final order (mood=${mood ?? "none"}):`);
+    ranked.forEach((r, i) => {
+      console.log(
+        `  ${i + 1}. ${r.mode}${r.subType ? `/${r.subType}` : ""} ` +
+        `finalScore=${r.finalScore} ` +
+        `(carbon=${r.carbonScore} time=${r.timeScore} comfort=${r.practicalityScore} ` +
+        `effort=${calcPhysicalEffort(r.mode, r.durationMin)})`
+      );
+    });
+  }
 
   if (ranked.length > 0) {
     ranked[0].recommended = true;
@@ -158,13 +331,17 @@ export const applyWeightedRanking = (candidates: ScoredCandidate[]): RankedRoute
     const extraMin = top.durationMin - fastestDuration;
 
     if (top.co2Grams === 0) {
-      ranked[0].recommendationReason = `Zero emissions — saves ${Math.round(top.carEquivalentCO2 / 100) / 10}kg CO2 vs driving`;
+      ranked[0].recommendationReason = `Zero emissions — saves ${Math.round(top.carEquivalentCO2 / 100) / 10} kg CO2 vs driving`;
     } else if (extraMin === 0) {
       ranked[0].recommendationReason = `Fastest AND ${savingPercent}% less CO2 than driving`;
     } else if (extraMin <= 10) {
       ranked[0].recommendationReason = `Only ${extraMin} min slower — saves ${savingPercent}% CO2 vs driving`;
     } else {
       ranked[0].recommendationReason = `${savingPercent}% less CO2 than driving — earns ${top.greenPoints} Green Points`;
+    }
+
+    if (mood) {
+      ranked[0].moodReason = moodRouteReason(mood, top);
     }
   }
 
@@ -304,12 +481,13 @@ async function buildPartnerAssistedCandidates(
 export async function generateEcoRoutes(params: {
   origin: { lat: number; lng: number; name?: string };
   destination: { lat: number; lng: number; name?: string };
+  mood?: RouteMood;
   departureTime?: string;
 }): Promise<EcoRoutesResponseData> {
-  const { origin, destination, departureTime } = params;
+  const { origin, destination, mood, departureTime } = params;
 
-  // v3: invalidates cached route responses that may be missing train geometry
-  const cacheKey = `eco:v3:${routeCacheKey(origin.lat, origin.lng, destination.lat, destination.lng)}`;
+  // v6: HURRY weights carbon→0.10/time→0.80; flight multi-segment; estimated cycling penalty
+  const cacheKey = `eco:v6:${routeCacheKey(origin.lat, origin.lng, destination.lat, destination.lng)}-${mood ?? "none"}`;
   const cached = await cacheGet<EcoRoutesResponseData>(cacheKey);
   if (cached) {
     console.log(`[Routing] Cache HIT for ${cacheKey} — returning cached result (${cached.routes?.length ?? 0} routes)`);
@@ -320,23 +498,28 @@ export async function generateEcoRoutes(params: {
   const distanceKm = Math.round(haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) * 10) / 10;
   const journeyType = detectJourneyType(distanceKm);
 
+  console.log(`[Routing] Journey: ${distanceKm} km | type=${journeyType} | mood=${mood ?? "none"}`);
+  console.log(`[Routing] Origin: (${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)}) → Dest: (${destination.lat.toFixed(5)}, ${destination.lng.toFixed(5)})`);
+
   const carBaselineCO2 = Math.round(distanceKm * 170);
   const carBaselineDuration = Math.round((distanceKm / 50) * 60 + 10);
 
-  // Decide which Google modes to fetch based on journey type (Step 1 of algorithm).
-  // MICRO  (< 2km):    walking + cycling only — no transit needed
-  // URBAN  (2–20km):   cycling + transit (+ walking as fallback)
-  // REGIONAL (20–150km): transit only — walking/cycling are impractical at this scale
-  // INTERCITY/INTERNATIONAL: transit only (train/flight handled separately)
+  // Decide which Google modes to fetch based on journey type.
+  // MICRO  (< 2 km):           walking + cycling
+  // URBAN  (2–20 km):          cycling + transit; also walking when ≤ WALKING_MAX_KM (8 km)
+  // REGIONAL/INTERCITY/INTL:   transit only (walking/cycling impractical)
   const googleModes: Array<"walking" | "bicycling" | "transit"> = [];
   if (journeyType === "MICRO") {
     googleModes.push("walking", "bicycling");
   } else if (journeyType === "URBAN") {
+    if (distanceKm <= WALKING_MAX_KM) {
+      googleModes.push("walking");
+    }
     googleModes.push("bicycling", "transit");
   } else {
-    // REGIONAL, INTERCITY, INTERNATIONAL — transit only from Google
     googleModes.push("transit");
   }
+  console.log(`[Routing] Modes to fetch: [${googleModes.join(", ")}]`);
 
   const googleFetches = googleModes.map((mode) =>
     fetchDirections({
@@ -395,6 +578,75 @@ export async function generateEcoRoutes(params: {
         dataSource: "GOOGLE_MAPS",
       });
     }
+  }
+
+  // ── Post-Google diagnostics ────────────────────────────────────────────────
+  {
+    const gotModes = candidates.map(c => c.mode);
+    console.log(`[Routing] Google succeeded: [${gotModes.join(", ")}]`);
+    const attempted = googleModes.map(m =>
+      m === "walking" ? "WALKING" : m === "bicycling" ? "BICYCLING" : "TRANSIT"
+    );
+    const failed = attempted.filter(m => !gotModes.includes(m));
+    if (failed.length > 0) {
+      console.log(`[Routing] Google failed/empty: [${failed.join(", ")}]`);
+    }
+  }
+
+  // ── Fallback walking — if distance is walkable but Google returned nothing ─
+  const hasWalking = candidates.some(c => c.mode === "WALKING");
+  if (!hasWalking && distanceKm <= WALKING_MAX_KM) {
+    const walkDurationMin = Math.round((distanceKm / WALKING_SPEED_KMH) * 60);
+    const existingGeom = candidates.find(c => c.geometry)?.geometry ?? "";
+    console.log(`[Routing] No walking from Google — adding estimated fallback (${distanceKm} km, ~${walkDurationMin} min)`);
+    candidates.push({
+      mode: "WALKING",
+      durationMin: walkDurationMin,
+      distanceKm,
+      co2Grams: 0,
+      carEquivalentCO2: carBaselineCO2,
+      savedVsCar: carBaselineCO2,
+      carbonScore: 100,
+      greenPoints: calculateGreenPoints(carBaselineCO2, "WALKING"),
+      carbonBreakdown: [{
+        mode: "WALKING",
+        distanceKm,
+        co2Grams: 0,
+        instruction: `Walk ${distanceKm.toFixed(1)} km to destination`,
+        startLocation: origin,
+        endLocation: destination,
+      }],
+      geometry: existingGeom,
+      dataSource: "ESTIMATED",
+    });
+  }
+
+  // ── Fallback cycling — if distance is cyclable but Google returned nothing ──
+  const hasCycling = candidates.some(c => c.mode === "BICYCLING" || c.mode === "CYCLING");
+  if (!hasCycling && distanceKm <= CYCLING_MAX_KM && (journeyType === "MICRO" || journeyType === "URBAN")) {
+    const cyclingDurationMin = Math.round((distanceKm / CYCLING_SPEED_KMH) * 60);
+    const existingGeom = candidates.find(c => c.geometry)?.geometry ?? "";
+    console.log(`[Routing] No cycling from Google — adding estimated fallback (${distanceKm} km, ~${cyclingDurationMin} min)`);
+    candidates.push({
+      mode: "BICYCLING",
+      durationMin: cyclingDurationMin,
+      distanceKm,
+      co2Grams: 0,
+      carEquivalentCO2: carBaselineCO2,
+      savedVsCar: carBaselineCO2,
+      carbonScore: 100,
+      greenPoints: calculateGreenPoints(carBaselineCO2, "BICYCLING"),
+      carbonBreakdown: [{
+        mode: "BICYCLING",
+        distanceKm,
+        co2Grams: 0,
+        instruction: `Cycle ${distanceKm.toFixed(1)} km to destination`,
+        startLocation: origin,
+        endLocation: destination,
+      }],
+      geometry: existingGeom,
+      dataSource: "ESTIMATED",
+    });
   }
 
   let hasTrainData = false;
@@ -457,7 +709,13 @@ export async function generateEcoRoutes(params: {
     console.error('[Routing] buildPartnerAssistedCandidates failed:', e);
   }
 
-  const rankedRoutes = applyWeightedRanking(candidates);
+  const rankedRoutes = applyWeightedRanking(candidates, mood);
+  console.log(
+    `[Routing] Final ranked (${rankedRoutes.length}): ` +
+    rankedRoutes.map((r, i) =>
+      `${i + 1}. ${r.mode}${r.subType ? `/${r.subType}` : ""} score=${r.finalScore}${r.recommended ? " ★" : ""}`
+    ).join(" | ")
+  );
 
   // Partner pins along top route
   let partnerPins: PartnerPin[] = [];
