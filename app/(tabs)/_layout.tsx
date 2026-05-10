@@ -47,6 +47,10 @@ export default function TabLayout() {
         options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
       />
       <Tabs.Screen
+        name="forum"
+        options={{ title: 'Forum', tabBarIcon: tabIcon('chatbubbles', 'chatbubbles-outline') }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarIcon: tabIcon('person', 'person-outline') }}
       />

@@ -9,6 +9,9 @@ import authRoutes from "./routes/auth.routes";
 import badgesRoutes from "./routes/badges.routes";
 import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
+import heatmapRoutes from "./routes/heatmap.routes";
+import pinsRoutes from "./routes/pins.routes";
+import forumRoutes from "./routes/forum.routes";
 import impactRoutes from "./routes/impact.routes";
 import partnersRoutes from "./routes/partners.routes";
 import routingRoutes from "./routes/routing.routes";
@@ -32,6 +35,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 
@@ -50,6 +54,9 @@ app.use("/api/partners", partnersRoutes);
 app.use("/api/coupons", couponsRoutes);
 app.use("/api/badges", badgesRoutes);
 app.use("/api/challenges", challengesRoutes);
+app.use("/api/heatmap", heatmapRoutes);
+app.use("/api/pins", pinsRoutes);
+app.use("/api/forums", forumRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────

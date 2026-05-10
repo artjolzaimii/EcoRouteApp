@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { EcoRoutesResponse } from './types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 async function getAccessToken(): Promise<string | null> {
   const { data: sessionData } = await supabase.auth.getSession();
