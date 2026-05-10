@@ -12,6 +12,8 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,12 +22,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
 
 type NotifKey = 'weeklySummary' | 'badgeAlerts' | 'streakReminders' | 'ecoPartnerNearby';
-
 type NotifConfig = { key: NotifKey; title: string; subtitle: string };
 
 const notifConfig: NotifConfig[] = [
@@ -35,7 +37,7 @@ const notifConfig: NotifConfig[] = [
   { key: 'ecoPartnerNearby', title: 'Eco-Partner nearby alerts', subtitle: 'Offers from eco businesses on your route' },
 ];
 
-type ProfileData = { fullName: string; email: string };
+type ProfileData = { fullName: string; email: string; avatarUrl?: string | null };
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -45,6 +47,8 @@ export default function EditProfileScreen() {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -65,12 +69,60 @@ export default function EditProfileScreen() {
       .then((data) => {
         setFullName(data.fullName ?? '');
         setEmail(data.email ?? session?.user?.email ?? '');
+        setAvatarUrl(data.avatarUrl ?? null);
       })
       .catch(() => {
         setEmail(session?.user?.email ?? '');
       })
       .finally(() => setLoadingProfile(false));
   }, []);
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow access to your photo library to set a profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      await uploadAvatar(result.assets[0].uri);
+    }
+  };
+
+  const uploadAvatar = async (uri: string) => {
+    if (!session?.user?.id) return;
+    setAvatarUploading(true);
+    try {
+      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const fileName = `${session.user.id}-${Date.now()}.${ext}`;
+
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadData.path);
+      const publicUrl = urlData.publicUrl;
+
+      await api.patch('/api/user/profile', { avatarUrl: publicUrl });
+      setAvatarUrl(publicUrl);
+    } catch (err: any) {
+      Alert.alert('Upload failed', err.message ?? 'Could not upload photo. Make sure the "avatars" bucket exists in Supabase Storage and is set to public.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const toggleNotif = (key: NotifKey, value: boolean) => {
     setNotifications((prev) => ({ ...prev, [key]: value }));
@@ -81,7 +133,6 @@ export default function EditProfileScreen() {
       Alert.alert('Name required', 'Please enter your full name.');
       return;
     }
-
     setSaving(true);
     try {
       await api.patch('/api/user/profile', { fullName: fullName.trim() });
@@ -97,13 +148,12 @@ export default function EditProfileScreen() {
 
   const initials = fullName
     ? fullName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-    : '?';
+    : (email ? email[0].toUpperCase() : '?');
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
           <Ionicons name="arrow-back-outline" size={20} color="#1A1A1A" />
@@ -120,17 +170,34 @@ export default function EditProfileScreen() {
         <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           {/* Avatar */}
           <View style={styles.avatarWrap}>
-            <LinearGradient colors={[Colors.emerald400, Colors.emerald600]} style={styles.avatar}>
-              {loadingProfile ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
+            {loadingProfile || avatarUploading ? (
+              <View style={[styles.avatarCircle, styles.avatarLoading]}>
+                <ActivityIndicator color={Colors.white} size="large" />
+              </View>
+            ) : avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.avatarCircle}
+                contentFit="cover"
+                transition={200}
+              />
+            ) : (
+              <LinearGradient colors={[Colors.emerald400, Colors.emerald600]} style={styles.avatarCircle}>
                 <Text style={styles.avatarInitials}>{initials}</Text>
-              )}
-            </LinearGradient>
-            <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.9}>
-              <Ionicons name="camera-outline" size={20} color={Colors.white} />
+              </LinearGradient>
+            )}
+
+            <TouchableOpacity
+              style={styles.cameraBtn}
+              activeOpacity={0.9}
+              onPress={pickImage}
+              disabled={avatarUploading}
+            >
+              <Ionicons name="camera-outline" size={18} color={Colors.white} />
             </TouchableOpacity>
           </View>
+
+          <Text style={styles.avatarHint}>Tap the camera icon to change your photo</Text>
 
           {/* Profile Info */}
           <View style={styles.card}>
@@ -153,7 +220,7 @@ export default function EditProfileScreen() {
                 value={email}
                 editable={false}
               />
-              <Text style={styles.fieldNote}>Email cannot be changed</Text>
+              <Text style={styles.fieldNote}>Email cannot be changed here</Text>
             </View>
           </View>
 
@@ -181,7 +248,6 @@ export default function EditProfileScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* Save Button */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
           style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
@@ -216,27 +282,29 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingTop: 8, gap: 20 },
   inner: { gap: 20 },
-  avatarWrap: { alignItems: 'center', position: 'relative' },
-  avatar: {
-    width: 128,
-    height: 128,
-    borderRadius: 64,
+  avatarWrap: { alignItems: 'center', position: 'relative', marginBottom: 4 },
+  avatarCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadow.lg,
   },
+  avatarLoading: { backgroundColor: Colors.emerald600 },
   avatarInitials: { color: Colors.white, fontSize: 36, fontWeight: '700' },
+  avatarHint: { textAlign: 'center', color: Colors.gray500, fontSize: 12, marginBottom: 8 },
   cameraBtn: {
     position: 'absolute',
-    bottom: 0,
-    right: '35%',
-    width: 40,
-    height: 40,
+    bottom: 4,
+    right: '34%',
+    width: 36,
+    height: 36,
     backgroundColor: ECO_GREEN,
-    borderRadius: 20,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: CREAM,
     ...Shadow.md,
   },
