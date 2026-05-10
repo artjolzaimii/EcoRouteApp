@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RouteSearch, PendingPlace, TripMode } from './types';
+import { RouteSearch, PendingPlace, TripMode, RouteMood } from './types';
 import { getRouteMapSegments } from './routeMap';
 
 // ─── Module-level singleton ───────────────────────────────────────────────────
@@ -44,6 +44,15 @@ export const routeStore = {
       notify();
     }
   },
+
+  setMood: (mood: RouteMood | undefined) => {
+    if (_state) {
+      _state = { ..._state, mood };
+      notify();
+    }
+  },
+
+  getMood: (): RouteMood | undefined => _state?.mood,
 
   clear: () => {
     _state = null;

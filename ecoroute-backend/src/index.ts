@@ -15,6 +15,7 @@ import forumRoutes from "./routes/forum.routes";
 import impactRoutes from "./routes/impact.routes";
 import partnersRoutes from "./routes/partners.routes";
 import routingRoutes from "./routes/routing.routes";
+import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
 
 // Global error handler
@@ -57,6 +58,7 @@ app.use("/api/challenges", challengesRoutes);
 app.use("/api/heatmap", heatmapRoutes);
 app.use("/api/pins", pinsRoutes);
 app.use("/api/forums", forumRoutes);
+app.use("/api/saved-routes", savedRoutesRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
