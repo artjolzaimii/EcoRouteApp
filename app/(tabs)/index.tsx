@@ -1,9 +1,10 @@
+import { MoodSelector } from '@/components/MoodSelector';
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { getEcoRoutes, api } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
 import { routeStore } from '@/lib/routeStore';
-import { TripMode } from '@/lib/types';
+import { TripMode, RouteMood } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -19,7 +20,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -112,6 +113,7 @@ export default function HomeScreen() {
   const { session } = useAuth();
 
   const [selectedMode, setSelectedMode] = useState<TripMode>('CYCLING');
+  const [selectedMood, setSelectedMood] = useState<RouteMood | undefined>(undefined);
   const [originAddress, setOriginAddress] = useState('Current location');
   const [destAddress, setDestAddress] = useState('');
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -249,6 +251,7 @@ export default function HomeScreen() {
       const ecoResponse = await getEcoRoutes(
         { lat: oLat, lng: oLng, name: originAddress },
         { lat: destCoords.lat, lng: destCoords.lng, name: destAddress },
+        selectedMood,
       );
 
       if (!ecoResponse.routes || ecoResponse.routes.length === 0) {
@@ -277,6 +280,7 @@ export default function HomeScreen() {
         routes: [] as any, // ecoResponse.routes stored in ecoResponse field
         selectedIndex: bestIndex,
         preferredMode: selectedMode,
+        mood: selectedMood,
         ecoResponse,
       });
 
@@ -353,6 +357,13 @@ export default function HomeScreen() {
                 );
               })}
             </View>
+          </View>
+        </View>
+
+        {/* ── Mood Selector ── */}
+        <View style={styles.section}>
+          <View style={[styles.card, styles.moodCardPad]}>
+            <MoodSelector selected={selectedMood} onSelect={setSelectedMood} />
           </View>
         </View>
 
@@ -640,6 +651,9 @@ const styles = StyleSheet.create({
   modeBtnActive: { backgroundColor: Colors.emerald50, borderColor: Colors.emerald600 },
   modeBtnLabel: { fontSize: 12, fontWeight: '500', color: Colors.gray600 },
   modeBtnLabelActive: { color: Colors.emerald700 },
+
+  // Mood card
+  moodCardPad: { padding: 16, paddingBottom: 12 },
 
   // Map card
   mapCardOuter: { borderRadius: 16, overflow: 'hidden' },

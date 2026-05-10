@@ -126,6 +126,7 @@ model Profile {
   userChallenges  UserChallenge[]
   pointsLedger    PointsLedger[]
   notifications   Notification[]
+  savedRoutes     SavedRoute[]
 
   @@map("profiles")
 }
@@ -435,4 +436,54 @@ model Notification {
 
   @@index([profileId, isRead])
   @@map("notifications")
+}
+
+// ─────────────────────────────────────────────
+// SavedRoute
+// ─────────────────────────────────────────────
+
+model SavedRoute {
+  id               String   @id @default(cuid())
+  profileId        String   @map("profile_id")
+
+  // Human-readable addresses
+  originAddress    String   @map("origin_address")
+  destAddress      String   @map("dest_address")
+
+  // Coordinates (rounded to 5 decimal places on insert for dedup)
+  originLat        Float    @map("origin_lat")
+  originLng        Float    @map("origin_lng")
+  destLat          Float    @map("dest_lat")
+  destLng          Float    @map("dest_lng")
+
+  // Route summary (displayed on saved-routes cards)
+  mode             String                     // WALKING | BICYCLING | TRANSIT | MIXED | PLANE | TRAIN
+  subType          String?  @map("sub_type")  // CYCLING_TRANSIT etc.
+  distanceKm       Float    @map("distance_km")
+  durationMin      Int      @map("duration_min")
+  co2Grams         Int      @map("co2_grams")
+  savedVsCar       Int      @map("saved_vs_car")
+  carEquivalentCO2 Int      @map("car_equivalent_co2")
+  carbonScore      Int      @map("carbon_score")
+  greenPoints      Int      @map("green_points")
+  finalScore       Int      @default(0) @map("final_score")
+
+  // Mood context when route was saved (optional)
+  mood             String?
+  moodReason       String?  @map("mood_reason")
+
+  // Full EcoRoute snapshot — contains carbonBreakdown steps + geometry polyline
+  // required to reconstruct navigation without re-fetching Google Maps
+  routeData        Json     @map("route_data")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  // One saved entry per user+origin+dest+mode combination.
+  // Re-saving updates the route data rather than creating a duplicate.
+  @@unique([profileId, originLat, originLng, destLat, destLng, mode])
+  @@index([profileId, createdAt(sort: Desc)])
+  @@map("saved_routes")
 }

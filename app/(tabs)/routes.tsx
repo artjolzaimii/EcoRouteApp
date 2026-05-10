@@ -1,6 +1,7 @@
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
+import { MoodSelector } from '@/components/MoodSelector';
 import { Colors, Shadow } from '@/constants/theme';
-import { recordPartnerClick } from '@/lib/api';
+import { getEcoRoutes, recordPartnerClick } from '@/lib/api';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
   flattenRouteSegments,
@@ -9,13 +10,15 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { getMoodMeta } from '@/lib/mood';
 import { routeStore, useRouteStore } from '@/lib/routeStore';
-import { EcoRoute, EcoRoutesResponse, NearbyPartner, PartnerPin } from '@/lib/types';
+import { EcoRoute, EcoRoutesResponse, NearbyPartner, PartnerPin, RouteMood } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Modal,
@@ -66,8 +69,8 @@ function modeLabel(mode: string, subType?: string): string {
 }
 
 function carbonScoreStyle(score: number): { bg: string; text: string; label: string } {
-  if (score >= 80) return { bg: Colors.emerald100, text: Colors.emerald700, label: 'Best' };
-  if (score >= 50) return { bg: Colors.amber100,   text: Colors.amber700,   label: 'Good' };
+  if (score >= 80) return { bg: Colors.emerald100, text: Colors.emerald700, label: 'Eco' };
+  if (score >= 50) return { bg: Colors.amber100,   text: Colors.amber700,   label: 'Low CO2' };
   return                  { bg: Colors.red100,      text: Colors.red600,     label: 'High CO2' };
 }
 
@@ -84,6 +87,10 @@ export default function RoutesScreen() {
   const [selectedPartner, setSelectedPartner] = useState<PartnerPin | NearbyPartner | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [co2SheetRoute, setCo2SheetRoute] = useState<EcoRoute | any | null>(null);
+  const [localMood, setLocalMood] = useState<RouteMood | undefined>(() => routeStore.get()?.mood);
+  const [rerankLoading, setRerankLoading] = useState(false);
+  const [rerankError, setRerankError] = useState<string | null>(null);
+  const [moodReasonSheet, setMoodReasonSheet] = useState<string | null>(null);
 
   // Determine which route format we have
   const ecoResponse: EcoRoutesResponse | undefined = state?.ecoResponse;
@@ -158,6 +165,25 @@ export default function RoutesScreen() {
     try { await recordPartnerClick(partner.id); } catch { /* non-critical */ }
   };
 
+  const handleRerank = async () => {
+    const s = routeStore.get();
+    if (!s) return;
+    setRerankLoading(true);
+    setRerankError(null);
+    try {
+      const resp = await getEcoRoutes(
+        { lat: s.originLat, lng: s.originLng, name: s.originAddress },
+        { lat: s.destLat, lng: s.destLng, name: s.destAddress },
+        localMood,
+      );
+      routeStore.set({ ...s, mood: localMood, ecoResponse: resp, selectedIndex: 0 });
+    } catch (err: any) {
+      setRerankError(err.message ?? 'Could not fetch routes');
+    } finally {
+      setRerankLoading(false);
+    }
+  };
+
   // ── Empty state ────────────────────────────────────────────────────────────
 
   if (!state || !hasAnyRoutes) {
@@ -185,42 +211,6 @@ export default function RoutesScreen() {
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
-
-  // When the API returns no cycling option, inject a synthetic BICYCLING card that
-  // mirrors the walking route geometry. This lets the user explicitly choose cycling
-  // so the backend records the correct mode and challenge progress updates correctly.
-  const syntheticInjected = useRef(false);
-  useEffect(() => {
-    if (syntheticInjected.current) return;
-    const s = routeStore.get();
-    const ecoResp = s?.ecoResponse;
-    if (!s || !ecoResp) return;
-
-    const alreadyHasCycling = ecoResp.routes.some(
-      r => r.mode === 'CYCLING' || r.mode === 'BICYCLING',
-    );
-    syntheticInjected.current = true;
-    if (alreadyHasCycling) return;
-
-    const walkingRoute = ecoResp.routes.find(r => r.mode === 'WALKING');
-    if (!walkingRoute) return;
-
-    const synthetic: EcoRoute & { _synthetic?: boolean } = {
-      ...walkingRoute,
-      mode: 'BICYCLING' as EcoRoute['mode'],
-      durationMin: Math.round(walkingRoute.durationMin / 2),
-      recommended: false,
-      recommendationReason: 'No cycling data for this area — follows the walking path',
-      partnerStop: undefined,
-      _synthetic: true,
-    };
-
-    const updatedRoutes = ecoResp.routes.flatMap(r =>
-      r.mode === 'WALKING' ? [r, synthetic] : [r],
-    );
-
-    routeStore.set({ ...s, ecoResponse: { ...ecoResp, routes: updatedRoutes } });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderEcoRouteCard = (route: EcoRoute & { _synthetic?: boolean }, idx: number) => {
     const active = selectedIndex === idx;
@@ -284,10 +274,6 @@ export default function RoutesScreen() {
               {route.greenPoints}{route.greenPoints > 0 ? '+' : ''} pts
             </Text>
           </View>
-          <View style={styles.statItem}>
-            <Ionicons name="analytics-outline" size={13} color={Colors.gray500} />
-            <Text style={styles.statGray}>Score {route.carbonScore}</Text>
-          </View>
         </View>
 
         {/* Train / Flight extra info */}
@@ -316,21 +302,49 @@ export default function RoutesScreen() {
             <Text style={styles.reasonText}>{route.recommendationReason}</Text>
           </View>
         )}
-        {route._synthetic && (
+        {route.dataSource === 'ESTIMATED' && (route.mode === 'BICYCLING' || route.mode === 'WALKING') && (
           <View style={styles.syntheticNote}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.gray400} />
-            <Text style={styles.syntheticNoteText}>No cycling data — uses the walking path</Text>
+            <Text style={styles.syntheticNoteText}>Estimated — no live data for this route</Text>
           </View>
         )}
 
-        <TouchableOpacity
-          style={styles.co2InfoBtn}
-          onPress={() => setCo2SheetRoute(route)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
-          <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
-        </TouchableOpacity>
+        {route.moodReason && localMood === state?.mood && (() => {
+          const meta = localMood ? getMoodMeta(localMood) : undefined;
+          return (
+            <View style={styles.moodReasonRow}>
+              {meta && (
+                <Ionicons
+                  name={meta.icon as React.ComponentProps<typeof Ionicons>['name']}
+                  size={12}
+                  color={Colors.emerald600}
+                />
+              )}
+              <Text style={styles.moodReasonText} numberOfLines={1}>{route.moodReason}</Text>
+            </View>
+          );
+        })()}
+
+        <View style={styles.cardInfoRow}>
+          {route.moodReason && localMood === state?.mood && (
+            <TouchableOpacity
+              style={styles.co2InfoBtn}
+              onPress={() => setMoodReasonSheet(route.moodReason!)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="help-circle-outline" size={14} color={Colors.emerald700} />
+              <Text style={styles.co2InfoText}>Why this route?</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.co2InfoBtn}
+            onPress={() => setCo2SheetRoute(route)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
+            <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
     );
   };
@@ -530,6 +544,29 @@ export default function RoutesScreen() {
             <View style={styles.panelContent}>
               <Text style={styles.panelTitle}>Choose Your Route</Text>
 
+              {/* Mood re-rank panel */}
+              <View style={styles.moodPanel}>
+                <MoodSelector selected={localMood} onSelect={setLocalMood} />
+                {localMood !== state?.mood && (
+                  <TouchableOpacity
+                    style={[styles.rerankBtn, rerankLoading && styles.rerankBtnDisabled]}
+                    onPress={handleRerank}
+                    disabled={rerankLoading}
+                    activeOpacity={0.9}
+                  >
+                    {rerankLoading ? (
+                      <ActivityIndicator color={Colors.white} size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="refresh-outline" size={16} color={Colors.white} />
+                        <Text style={styles.rerankBtnText}>Update recommendations</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+                {rerankError && <Text style={styles.rerankError}>{rerankError}</Text>}
+              </View>
+
               <View style={styles.routeList}>
                 {hasEcoRoutes
                   ? routes.map((r, idx) => renderEcoRouteCard(r, idx))
@@ -677,6 +714,41 @@ export default function RoutesScreen() {
           </Animated.View>
         </View>
       </Modal>
+      {/* Mood Reason Sheet */}
+      <Modal
+        visible={!!moodReasonSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMoodReasonSheet(null)}
+      >
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setMoodReasonSheet(null)} />
+          <View style={styles.moodReasonSheetWrap}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.moodReasonSheetBody}>
+              <View style={styles.rowEnd}>
+                <TouchableOpacity style={styles.closeBtn} onPress={() => setMoodReasonSheet(null)}>
+                  <Ionicons name="close-outline" size={20} color={Colors.gray600} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.moodReasonSheetHeader}>
+                {localMood && getMoodMeta(localMood) && (
+                  <View style={styles.moodReasonSheetIconBox}>
+                    <Ionicons
+                      name={getMoodMeta(localMood)!.icon as React.ComponentProps<typeof Ionicons>['name']}
+                      size={22}
+                      color={Colors.emerald600}
+                    />
+                  </View>
+                )}
+                <Text style={styles.moodReasonSheetTitle}>Why this route?</Text>
+              </View>
+              <Text style={styles.moodReasonSheetText}>{moodReasonSheet}</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Co2TransparencySheet
         visible={!!co2SheetRoute}
         data={co2DataFromRoute(co2SheetRoute)}
@@ -827,4 +899,49 @@ const styles = StyleSheet.create({
   pointsSub: { color: Colors.gray600, fontSize: 11, marginTop: 2 },
   earnBtn: { backgroundColor: Colors.emerald600, borderRadius: 16, paddingVertical: 16, alignItems: 'center', ...Shadow.lg },
   earnBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
+
+  moodPanel: { marginBottom: 16, gap: 10 },
+  rerankBtn: {
+    backgroundColor: Colors.emerald600, borderRadius: 12,
+    paddingVertical: 11, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  rerankBtnDisabled: { opacity: 0.55 },
+  rerankBtnText: { color: Colors.white, fontWeight: '600', fontSize: 14 },
+  rerankError: { color: Colors.red600, fontSize: 12, textAlign: 'center' },
+
+  moodReasonRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
+  moodReasonText: { fontSize: 12, color: Colors.emerald700, flex: 1, fontStyle: 'italic' },
+
+  cardInfoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 },
+
+  moodReasonSheetWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    ...Shadow.xl,
+  },
+  moodReasonSheetBody: { paddingHorizontal: 24, paddingBottom: 48 },
+  moodReasonSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  moodReasonSheetIconBox: {
+    width: 44,
+    height: 44,
+    backgroundColor: Colors.emerald50,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+  },
+  moodReasonSheetTitle: { color: Colors.gray900, fontWeight: '700', fontSize: 18 },
+  moodReasonSheetText: { color: Colors.gray700, fontSize: 14, lineHeight: 22 },
 });

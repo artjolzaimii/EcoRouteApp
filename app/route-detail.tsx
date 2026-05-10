@@ -23,6 +23,8 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { getMoodMeta } from '@/lib/mood';
+import { saveRoute } from '@/lib/api';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -31,11 +33,14 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 function stepIcon(mode: string): { icon: IoniconName; bg: string; color: string } {
   switch (mode.toUpperCase()) {
     case 'WALKING': return { icon: 'walk-outline', bg: Colors.blue100, color: Colors.blue600 };
-    case 'CYCLING': return { icon: 'bicycle-outline', bg: Colors.emerald100, color: Colors.emerald600 };
+    case 'CYCLING':
+    case 'BICYCLING': return { icon: 'bicycle-outline', bg: Colors.emerald100, color: Colors.emerald600 };
     case 'TRANSIT':
     case 'BUS': return { icon: 'bus-outline', bg: Colors.purple100, color: Colors.purple600 };
     case 'TRAIN':
     case 'SUBWAY': return { icon: 'train-outline', bg: Colors.purple100, color: Colors.purple600 };
+    case 'PLANE':
+    case 'FLIGHT': return { icon: 'airplane-outline', bg: Colors.blue100, color: Colors.blue600 };
     case 'EV':
     case 'DRIVING': return { icon: 'car-outline', bg: Colors.amber100, color: Colors.amber700 };
     default: return { icon: 'navigate-outline', bg: Colors.gray100, color: Colors.gray600 };
@@ -52,10 +57,13 @@ function formatDuration(s: number): string {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
 }
 
+type SaveState = 'idle' | 'saving' | 'saved';
+
 export default function RouteDetailScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const [co2SheetVisible, setCo2SheetVisible] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
   const state = routeStore.get();
   const selectedIndex = state?.selectedIndex ?? 0;
 
@@ -83,6 +91,10 @@ export default function RouteDetailScreen() {
   const durationMinutes: number = ecoRoute?.durationMin ?? legacyRoute?.durationMinutes ?? 0;
   const distanceKm: number = ecoRoute?.distanceKm ?? legacyRoute?.distanceKm ?? 0;
   const greenPoints: number = ecoRoute?.greenPoints ?? legacyRoute?.greenPoints ?? 0;
+
+  const selectedMood = state?.mood;
+  const moodMeta = selectedMood ? getMoodMeta(selectedMood) : undefined;
+  const moodReason = ecoRoute?.moodReason;
 
   const hasRoute = !!(ecoRoute ?? legacyRoute);
   const originLat = state?.originLat;
@@ -124,6 +136,37 @@ export default function RouteDetailScreen() {
       animated: false,
     });
   }, [routeCoords]);
+
+  const handleSave = async () => {
+    if (!ecoRoute || !state || saveState !== 'idle') return;
+    setSaveState('saving');
+    try {
+      await saveRoute({
+        originAddress: state.originAddress,
+        destAddress: state.destAddress,
+        originLat: state.originLat,
+        originLng: state.originLng,
+        destLat: state.destLat,
+        destLng: state.destLng,
+        mode: ecoRoute.mode,
+        subType: ecoRoute.subType,
+        distanceKm: ecoRoute.distanceKm,
+        durationMin: ecoRoute.durationMin,
+        co2Grams: ecoRoute.co2Grams,
+        savedVsCar: ecoRoute.savedVsCar,
+        carEquivalentCO2: ecoRoute.carEquivalentCO2,
+        carbonScore: ecoRoute.carbonScore,
+        greenPoints: ecoRoute.greenPoints,
+        finalScore: ecoRoute.finalScore,
+        mood: state.mood,
+        moodReason: ecoRoute.moodReason,
+        routeData: ecoRoute,
+      });
+      setSaveState('saved');
+    } catch {
+      setSaveState('idle');
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -194,6 +237,20 @@ export default function RouteDetailScreen() {
           <Text style={styles.sheetTitle}>
             {routeLabel}
           </Text>
+
+          {moodMeta && (
+            <View style={styles.moodBadgeWrap}>
+              <Ionicons
+                name={moodMeta.icon as React.ComponentProps<typeof Ionicons>['name']}
+                size={22}
+                color={Colors.emerald700}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.moodBadgeLabel}>Optimized for: {moodMeta.label}</Text>
+                {moodReason && <Text style={styles.moodBadgeReason}>{moodReason}</Text>}
+              </View>
+            </View>
+          )}
 
           {partnerStop && (
             <View style={styles.partnerCard}>
@@ -290,14 +347,33 @@ export default function RouteDetailScreen() {
         </ScrollView>
 
         <View style={[styles.footerWrap, { paddingBottom: insets.bottom + 16 }]}>
-          <TouchableOpacity
-            style={styles.startBtn}
-            onPress={() => router.push('/navigation')}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="navigate-outline" size={20} color={Colors.white} />
-            <Text style={styles.startBtnText}>Start Route</Text>
-          </TouchableOpacity>
+          <View style={styles.footerRow}>
+            {ecoRoute && (
+              <TouchableOpacity
+                style={[styles.saveBtn, saveState === 'saved' && styles.saveBtnSaved]}
+                onPress={handleSave}
+                activeOpacity={0.8}
+                disabled={saveState !== 'idle'}
+              >
+                <Ionicons
+                  name={saveState === 'saved' ? 'bookmark' : 'bookmark-outline'}
+                  size={20}
+                  color={saveState === 'saved' ? Colors.emerald600 : Colors.gray600}
+                />
+                <Text style={[styles.saveBtnText, saveState === 'saved' && styles.saveBtnTextSaved]}>
+                  {saveState === 'saving' ? 'Saving...' : saveState === 'saved' ? 'Saved' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.startBtn}
+              onPress={() => router.push('/navigation')}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="navigate-outline" size={20} color={Colors.white} />
+              <Text style={styles.startBtnText}>Start Route</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       <Co2TransparencySheet
@@ -331,7 +407,20 @@ const styles = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, marginTop: -24, ...Shadow.xl },
   sheetHandle: { width: 40, height: 4, backgroundColor: Colors.gray300, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
   sheetScroll: { flex: 1, paddingHorizontal: 24 },
-  sheetTitle: { color: '#1A1A1A', fontSize: 20, fontWeight: '700', marginBottom: 16 },
+  sheetTitle: { color: '#1A1A1A', fontSize: 20, fontWeight: '700', marginBottom: 12 },
+  moodBadgeWrap: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: Colors.emerald50,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+  },
+  moodBadgeLabel: { color: Colors.emerald800, fontWeight: '600', fontSize: 13 },
+  moodBadgeReason: { color: Colors.emerald700, fontSize: 12, marginTop: 2 },
   stepsWrap: { gap: 0, marginBottom: 24 },
   stepRow: { flexDirection: 'row', gap: 16 },
   stepLeft: { alignItems: 'center' },
@@ -369,8 +458,17 @@ const styles = StyleSheet.create({
   co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', marginBottom: 16 },
   co2InfoText: { color: Colors.emerald700, fontSize: 13, fontWeight: '700' },
   footerWrap: { paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.gray100 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  saveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 20, paddingVertical: 16,
+    backgroundColor: Colors.gray100, borderRadius: 20, ...Shadow.sm,
+  },
+  saveBtnSaved: { backgroundColor: Colors.emerald50 },
+  saveBtnText: { color: Colors.gray600, fontWeight: '600', fontSize: 15 },
+  saveBtnTextSaved: { color: Colors.emerald600 },
   startBtn: {
-    backgroundColor: Colors.emerald600, borderRadius: 20, paddingVertical: 16,
+    flex: 1, backgroundColor: Colors.emerald600, borderRadius: 20, paddingVertical: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, ...Shadow.lg,
   },
   startBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
