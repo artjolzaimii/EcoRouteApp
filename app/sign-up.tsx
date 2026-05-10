@@ -11,7 +11,8 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useNavigation } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +26,7 @@ const ECO_GREEN = Colors.emerald600;
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
   const { signUp } = useAuth();
+  const navigation = useNavigation();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -62,8 +64,12 @@ export default function SignUpScreen() {
 
     setLoading(true);
     try {
-      await signUp(email.trim(), password, fullName.trim());
-      router.push('/email-verification');
+      const result = await signUp(email.trim(), password, fullName.trim());
+      if (result.needsEmailVerification) {
+        router.push({ pathname: '/email-verification', params: { email: result.email } });
+      } else {
+        navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: '(tabs)' }] }));
+      }
     } catch (err: any) {
       Alert.alert('Sign up failed', err.message ?? 'An error occurred. Please try again.');
     } finally {

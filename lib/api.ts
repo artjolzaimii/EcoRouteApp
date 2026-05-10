@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { EcoRoutesResponse } from './types';
+import { EcoRoute, EcoRoutesResponse, RouteMood, SavedRouteItem } from './types';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -72,11 +72,13 @@ export const api = {
 export const getEcoRoutes = async (
   origin: { lat: number; lng: number; name?: string },
   destination: { lat: number; lng: number; name?: string },
-  departureTime?: Date
+  mood?: RouteMood,
+  departureTime?: Date,
 ): Promise<EcoRoutesResponse> => {
   return request<EcoRoutesResponse>('POST', '/api/routes', {
     origin,
     destination,
+    mood,
     departureTime: departureTime?.toISOString(),
   });
 };
@@ -147,3 +149,36 @@ export const redeemCoupon = (couponId: string): Promise<unknown> =>
 
 export const recordPartnerClick = (partnerId: string): Promise<unknown> =>
   request<unknown>('POST', '/api/partners/click', { partnerId });
+
+// ─────────────────────────────────────────────
+// Saved Routes
+// ─────────────────────────────────────────────
+
+export const getSavedRoutes = (): Promise<SavedRouteItem[]> =>
+  request<SavedRouteItem[]>('GET', '/api/saved-routes');
+
+export const saveRoute = (payload: {
+  originAddress: string;
+  destAddress: string;
+  originLat: number;
+  originLng: number;
+  destLat: number;
+  destLng: number;
+  mode: string;
+  subType?: string;
+  distanceKm: number;
+  durationMin: number;
+  co2Grams: number;
+  savedVsCar: number;
+  carEquivalentCO2: number;
+  carbonScore: number;
+  greenPoints: number;
+  finalScore?: number;
+  mood?: string;
+  moodReason?: string;
+  routeData: EcoRoute;
+}): Promise<SavedRouteItem> =>
+  request<SavedRouteItem>('POST', '/api/saved-routes', payload);
+
+export const deleteSavedRoute = (id: string): Promise<null> =>
+  request<null>('DELETE', `/api/saved-routes/${id}`);

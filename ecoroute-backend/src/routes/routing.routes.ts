@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
-import { generateRoutes, generateEcoRoutes, detectJourneyType, haversineDistance } from "../services/routing.service";
+import { generateRoutes, generateEcoRoutes, detectJourneyType, haversineDistance, VALID_MOODS } from "../services/routing.service";
 
 const router = Router();
 
@@ -18,6 +18,7 @@ const EcoRouteRequestSchema = z.object({
     lng: z.number().min(-180).max(180),
     name: z.string().optional(),
   }),
+  mood: z.enum(VALID_MOODS).optional(),
   departureTime: z.string().datetime().optional(),
 });
 
@@ -45,10 +46,10 @@ router.post(
       // New format: nested origin / destination
       const newParse = EcoRouteRequestSchema.safeParse(body);
       if (newParse.success) {
-        const { origin, destination, departureTime } = newParse.data;
+        const { origin, destination, mood, departureTime } = newParse.data;
         let result;
         try {
-          result = await generateEcoRoutes({ origin, destination, departureTime });
+          result = await generateEcoRoutes({ origin, destination, mood, departureTime });
         } catch (googleErr: any) {
           if (googleErr?.message?.includes("GOOGLE_MAPS_API_KEY")) {
             res.status(503).json({ success: false, error: "Routing service unavailable — Google API key not configured" });

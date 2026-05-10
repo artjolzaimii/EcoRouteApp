@@ -25,6 +25,7 @@ export function routeModeKey(mode?: string): string {
   if (value === 'TRAIN' || value === 'RAIL' || value === 'RAIL_HIGHSPEED' || value === 'HIGH_SPEED_TRAIN' || value === 'SUBWAY' || value === 'METRO' || value === 'HEAVY_RAIL' || value === 'COMMUTER_TRAIN') return 'TRAIN';
   if (value === 'EV' || value === 'DRIVING' || value === 'CAR') return 'CAR';
   if (value === 'WALKING') return 'WALKING';
+  if (value === 'PLANE' || value === 'FLIGHT') return 'PLANE';
   return value || 'ROUTE';
 }
 
@@ -40,6 +41,8 @@ export function routeModeStyle(mode?: string): { strokeColor: string; strokeWidt
       return { strokeColor: '#7e22ce', strokeWidth: 6 };
     case 'CAR':
       return { strokeColor: '#374151', strokeWidth: 6 };
+    case 'PLANE':
+      return { strokeColor: '#60a5fa', strokeWidth: 5, lineDashPattern: [6, 10] };
     default:
       return { strokeColor: '#059669', strokeWidth: 6 };
   }
@@ -52,6 +55,7 @@ export function routeModeIcon(mode?: string): string {
     case 'BUS': return 'bus-outline';
     case 'TRAIN': return 'train-outline';
     case 'CAR': return 'car-outline';
+    case 'PLANE': return 'airplane-outline';
     default: return 'navigate-outline';
   }
 }
