@@ -25,7 +25,7 @@ export default function TabLayout() {
           height: 68,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '500',
         },
       }}
@@ -45,6 +45,10 @@ export default function TabLayout() {
       <Tabs.Screen
         name="rewards"
         options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
+      />
+      <Tabs.Screen
+        name="marketplace"
+        options={{ title: 'Shop', tabBarIcon: tabIcon('storefront', 'storefront-outline') }}
       />
       <Tabs.Screen
         name="profile"

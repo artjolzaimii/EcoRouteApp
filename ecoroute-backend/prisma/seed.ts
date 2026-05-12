@@ -383,6 +383,31 @@ async function main(): Promise<void> {
 
   console.log(`  ✔ ${challengeData.length} challenges seeded`);
 
+  // ─── Marketplace Categories ───────────────────────────────────────────────
+
+  const categories = [
+    { slug: "bike",      label: "Bike",                glyph: "🚲", sortOrder: 0 },
+    { slug: "scooter",   label: "Scooter",             glyph: "🛵", sortOrder: 1 },
+    { slug: "eco",       label: "Eco Products",        glyph: "🌿", sortOrder: 2 },
+    { slug: "coffee",    label: "Coffee",              glyph: "☕", sortOrder: 3 },
+    { slug: "transit",   label: "Transit",             glyph: "🚌", sortOrder: 4 },
+    { slug: "reusable",  label: "Reusable Items",      glyph: "♻️", sortOrder: 5 },
+    { slug: "fashion",   label: "Sustainable Fashion", glyph: "👕", sortOrder: 6 },
+    { slug: "repair",    label: "Repair Services",     glyph: "🔧", sortOrder: 7 },
+    { slug: "gym",       label: "Gym",                 glyph: "🏃", sortOrder: 8 },
+    { slug: "student",   label: "Student",             glyph: "🎒", sortOrder: 9 },
+  ];
+
+  for (const cat of categories) {
+    await (prisma as any).marketplaceCategory.upsert({
+      where:  { slug: cat.slug },
+      update: { label: cat.label, glyph: cat.glyph, sortOrder: cat.sortOrder },
+      create: cat,
+    });
+  }
+
+  console.log(`  ✔ ${categories.length} marketplace categories seeded`);
+
   // ─── Airports ─────────────────────────────────────────────────────────────
 
   await seedAirports();
