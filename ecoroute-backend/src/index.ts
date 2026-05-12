@@ -30,7 +30,9 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.NODE_ENV === "production" ? false : "*",
+    origin: process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",")
+      : "*",
     methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["Authorization", "Content-Type"],
   })
