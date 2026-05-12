@@ -15,6 +15,9 @@ module.exports = ({ config }) => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.anonymous.EcoRouteApp',
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
     config: {
       googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
     },
