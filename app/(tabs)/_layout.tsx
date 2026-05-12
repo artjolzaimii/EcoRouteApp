@@ -47,6 +47,10 @@ export default function TabLayout() {
         options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
       />
       <Tabs.Screen
+        name="leaderboard"
+        options={{ title: 'Ranks', tabBarIcon: tabIcon('trophy', 'trophy-outline') }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarIcon: tabIcon('person', 'person-outline') }}
       />

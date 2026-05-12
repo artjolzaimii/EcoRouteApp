@@ -107,6 +107,14 @@ router.post(
         },
       });
 
+      // Guarantee stats exist even when the profile already existed (update path).
+      // This is a no-op for brand-new profiles whose stats were just created above.
+      await prisma.userStats.upsert({
+        where: { profileId: profile.id },
+        create: { profileId: profile.id },
+        update: {},
+      });
+
       res.status(200).json({ success: true, data: profile });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
