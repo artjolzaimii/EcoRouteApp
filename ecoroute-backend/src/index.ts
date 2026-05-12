@@ -10,6 +10,7 @@ import badgesRoutes from "./routes/badges.routes";
 import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
 import impactRoutes from "./routes/impact.routes";
+import leaderboardRoutes from "./routes/leaderboard.routes";
 import partnersRoutes from "./routes/partners.routes";
 import routingRoutes from "./routes/routing.routes";
 import savedRoutesRoutes from "./routes/saved-routes.routes";
@@ -43,6 +44,7 @@ app.get("/health", (_req, res) => {
 // ─── API routes ───────────────────────────────────────────────────────────────
 
 app.use("/api/auth", authRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/routes", routingRoutes);
 app.use("/api/trips", tripsRoutes);
 app.use("/api/user", usersRoutes);
