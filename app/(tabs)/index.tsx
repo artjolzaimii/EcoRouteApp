@@ -22,7 +22,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -39,18 +39,6 @@ async function tryGetCurrentLocation(): Promise<{ lat: number; lng: number } | n
     return null;
   }
 }
-
-type TransportMode = {
-  id: TripMode;
-  label: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-};
-
-const transportModes: TransportMode[] = [
-  { id: 'CYCLING', label: 'Bike', icon: 'bicycle-outline' },
-  { id: 'TRANSIT', label: 'Transit', icon: 'bus-outline' },
-  { id: 'WALKING', label: 'Walk', icon: 'footsteps-outline' },
-];
 
 type Challenge = {
   id: string;
@@ -337,27 +325,21 @@ export default function HomeScreen() {
           </View>
         </LinearGradient>
 
-        {/* ── Transport Mode ── */}
+        {/* ── Community Heatmap Banner ── */}
         <View style={styles.sectionOffset}>
-          <View style={[styles.card, styles.modeCardPad]}>
-            <Text style={styles.cardHeading}>Travel Mode</Text>
-            <View style={styles.modeRow}>
-              {transportModes.map((mode) => {
-                const active = selectedMode === mode.id;
-                return (
-                  <TouchableOpacity
-                    key={mode.id}
-                    style={[styles.modeBtn, active && styles.modeBtnActive]}
-                    onPress={() => setSelectedMode(mode.id)}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name={mode.icon} size={24} color={active ? Colors.emerald600 : Colors.gray400} />
-                    <Text style={[styles.modeBtnLabel, active && styles.modeBtnLabelActive]}>{mode.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+          <TouchableOpacity
+            style={styles.heatmapBanner}
+            onPress={() => router.push('/heatmap')}
+            activeOpacity={0.88}
+          >
+            <View style={styles.heatmapBannerLeft}>
+              <Text style={styles.heatmapBannerTitle}>We're making change together</Text>
+              <Text style={styles.heatmapBannerSub}>See where the community eco-routes most</Text>
             </View>
-          </View>
+            <View style={styles.heatmapBannerIcon}>
+              <Ionicons name="earth-outline" size={28} color={Colors.emerald600} />
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* ── Mood Selector ── */}
@@ -376,7 +358,6 @@ export default function HomeScreen() {
               <MapView
                 ref={mapRef}
                 style={StyleSheet.absoluteFillObject}
-                provider={PROVIDER_GOOGLE}
                 region={mapRegion}
                 onRegionChangeComplete={(r) => setMapRegion(r)}
                 scrollEnabled={true}
@@ -635,22 +616,6 @@ const styles = StyleSheet.create({
   sectionOffset: { paddingHorizontal: 24, marginTop: -16 },
   section: { paddingHorizontal: 24, marginTop: 24 },
   card: { backgroundColor: Colors.white, borderRadius: 16, ...Shadow.lg },
-  modeCardPad: { padding: 16 },
-  cardHeading: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 12 },
-  modeRow: { flexDirection: 'row', gap: 12 },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.gray200,
-    backgroundColor: Colors.gray50,
-    alignItems: 'center',
-    gap: 4,
-  },
-  modeBtnActive: { backgroundColor: Colors.emerald50, borderColor: Colors.emerald600 },
-  modeBtnLabel: { fontSize: 12, fontWeight: '500', color: Colors.gray600 },
-  modeBtnLabelActive: { color: Colors.emerald700 },
 
   // Mood card
   moodCardPad: { padding: 16, paddingBottom: 12 },
@@ -762,4 +727,26 @@ const styles = StyleSheet.create({
   pointsSub: { color: Colors.gray600, fontSize: 11, marginTop: 2 },
   earnBtn: { backgroundColor: Colors.emerald600, borderRadius: 16, paddingVertical: 16, alignItems: 'center', ...Shadow.lg },
   earnBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
+  heatmapBanner: {
+    backgroundColor: Colors.emerald50,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...Shadow.sm,
+  },
+  heatmapBannerLeft: { flex: 1, marginRight: 12 },
+  heatmapBannerTitle: { fontSize: 15, fontWeight: '700', color: Colors.emerald900, marginBottom: 4 },
+  heatmapBannerSub: { fontSize: 13, color: Colors.emerald700 },
+  heatmapBannerIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: Colors.emerald100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

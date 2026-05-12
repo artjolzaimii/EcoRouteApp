@@ -133,6 +133,13 @@ enum PointsLedgerType {
   EXPIRE
 }
 
+enum PinCategory {
+  TRASH
+  CLEANUP
+  ECO_OFFER
+  COMMUNITY
+}
+
 // ─────────────────────────────────────────────
 // Profile
 // ─────────────────────────────────────────────
@@ -155,6 +162,12 @@ model Profile {
   userChallenges    UserChallenge[]
   pointsLedger      PointsLedger[]
   notifications     Notification[]
+  mapPins           MapPin[]
+  pinUpvotes        PinUpvote[]
+  pinComments       PinComment[]
+  forums            Forum[]
+  forumLikes        ForumLike[]
+  forumComments     ForumComment[]
   savedRoutes       SavedRoute[]
   partnerProfile    PartnerProfile?
   marketplaceOrders MarketplaceOrder[]
@@ -470,6 +483,124 @@ model Notification {
 }
 
 // ─────────────────────────────────────────────
+// MapPin
+// ─────────────────────────────────────────────
+
+model MapPin {
+  id          String      @id @default(cuid())
+  profileId   String      @map("profile_id")
+  category    PinCategory
+  title       String      @db.VarChar(120)
+  description String?     @db.VarChar(400)
+  latitude    Decimal     @db.Decimal(10, 7)
+  longitude   Decimal     @db.Decimal(10, 7)
+  expiresAt   DateTime    @map("expires_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  profile  Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  upvotes  PinUpvote[]
+  comments PinComment[]
+  forums   Forum[]
+
+  @@index([expiresAt])
+  @@index([latitude, longitude])
+  @@map("map_pins")
+}
+
+// ─────────────────────────────────────────────
+// PinComment
+// ─────────────────────────────────────────────
+
+model PinComment {
+  id        String   @id @default(cuid())
+  pinId     String   @map("pin_id")
+  profileId String   @map("profile_id")
+  text      String   @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pin     MapPin  @relation(fields: [pinId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([pinId, createdAt])
+  @@map("pin_comments")
+}
+
+// ─────────────────────────────────────────────
+// PinUpvote
+// ─────────────────────────────────────────────
+
+model PinUpvote {
+  pinId     String @map("pin_id")
+  profileId String @map("profile_id")
+
+  pin     MapPin  @relation(fields: [pinId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([pinId, profileId])
+  @@map("pin_upvotes")
+}
+
+// ─────────────────────────────────────────────
+// Forum
+// ─────────────────────────────────────────────
+
+model Forum {
+  id           String   @id @default(cuid())
+  profileId    String   @map("profile_id")
+  title        String
+  body         String?
+  imageUrl     String?  @map("image_url")
+  sourcePinId  String?  @map("source_pin_id")
+  likeCount    Int      @default(0) @map("like_count")
+  commentCount Int      @default(0) @map("comment_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  profile   Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  sourcePin MapPin?        @relation(fields: [sourcePinId], references: [id], onDelete: SetNull)
+  likes     ForumLike[]
+  comments  ForumComment[]
+
+  @@index([createdAt])
+  @@index([likeCount])
+  @@index([commentCount])
+  @@map("forums")
+}
+
+// ─────────────────────────────────────────────
+// ForumLike
+// ─────────────────────────────────────────────
+
+model ForumLike {
+  forumId   String @map("forum_id")
+  profileId String @map("profile_id")
+
+  forum   Forum   @relation(fields: [forumId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([forumId, profileId])
+  @@map("forum_likes")
+}
+
+// ─────────────────────────────────────────────
+// ForumComment
+// ─────────────────────────────────────────────
+
+model ForumComment {
+  id        String   @id @default(cuid())
+  forumId   String   @map("forum_id")
+  profileId String   @map("profile_id")
+  text      String   @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  forum   Forum   @relation(fields: [forumId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([forumId, createdAt])
+  @@map("forum_comments")
+}
+
+// ─────────────────────────────────────────────
 // SavedRoute
 // ─────────────────────────────────────────────
 
@@ -488,32 +619,27 @@ model SavedRoute {
   destLng   Float @map("dest_lng")
 
   // Route summary (displayed on saved-routes cards)
-  mode             String // WALKING | BICYCLING | TRANSIT | MIXED | PLANE | TRAIN
-  subType          String? @map("sub_type") // CYCLING_TRANSIT etc.
-  distanceKm       Float   @map("distance_km")
-  durationMin      Int     @map("duration_min")
-  co2Grams         Int     @map("co2_grams")
-  savedVsCar       Int     @map("saved_vs_car")
-  carEquivalentCO2 Int     @map("car_equivalent_co2")
-  carbonScore      Int     @map("carbon_score")
-  greenPoints      Int     @map("green_points")
-  finalScore       Int     @default(0) @map("final_score")
+  mode             String
+  subType          String?  @map("sub_type")
+  distanceKm       Float    @map("distance_km")
+  durationMin      Int      @map("duration_min")
+  co2Grams         Int      @map("co2_grams")
+  savedVsCar       Int      @map("saved_vs_car")
+  carEquivalentCO2 Int      @map("car_equivalent_co2")
+  carbonScore      Int      @map("carbon_score")
+  greenPoints      Int      @map("green_points")
+  finalScore       Int      @default(0) @map("final_score")
 
-  // Mood context when route was saved (optional)
-  mood       String?
-  moodReason String? @map("mood_reason")
+  mood             String?
+  moodReason       String?  @map("mood_reason")
 
-  // Full EcoRoute snapshot — contains carbonBreakdown steps + geometry polyline
-  // required to reconstruct navigation without re-fetching Google Maps
-  routeData Json @map("route_data")
+  routeData        Json     @map("route_data")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
-  // One saved entry per user+origin+dest+mode combination.
-  // Re-saving updates the route data rather than creating a duplicate.
   @@unique([profileId, originLat, originLng, destLat, destLng, mode])
   @@index([profileId, createdAt(sort: Desc)])
   @@map("saved_routes")

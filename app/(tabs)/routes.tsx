@@ -31,7 +31,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MAP_HEIGHT = Math.round(SCREEN_HEIGHT * 0.44);
@@ -146,6 +146,40 @@ export default function RoutesScreen() {
       animated: true,
     });
   }, [selectedIndex, routeCoords]);
+
+  // Must be declared before the early return to satisfy Rules of Hooks
+  const syntheticInjected = useRef(false);
+  useEffect(() => {
+    if (syntheticInjected.current) return;
+    const s = routeStore.get();
+    const ecoResp = s?.ecoResponse;
+    if (!s || !ecoResp) return;
+
+    const alreadyHasCycling = ecoResp.routes.some(
+      r => r.mode === 'CYCLING' || r.mode === 'BICYCLING',
+    );
+    syntheticInjected.current = true;
+    if (alreadyHasCycling) return;
+
+    const walkingRoute = ecoResp.routes.find(r => r.mode === 'WALKING');
+    if (!walkingRoute) return;
+
+    const synthetic: EcoRoute & { _synthetic?: boolean } = {
+      ...walkingRoute,
+      mode: 'BICYCLING' as EcoRoute['mode'],
+      durationMin: Math.round(walkingRoute.durationMin / 2),
+      recommended: false,
+      recommendationReason: 'No cycling data for this area — follows the walking path',
+      partnerStop: undefined,
+      _synthetic: true,
+    };
+
+    const updatedRoutes = ecoResp.routes.flatMap(r =>
+      r.mode === 'WALKING' ? [r, synthetic] : [r],
+    );
+
+    routeStore.set({ ...s, ecoResponse: { ...ecoResp, routes: updatedRoutes } });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openPartnerSheet = (partner: PartnerPin | NearbyPartner) => {
     setSelectedPartner(partner);
@@ -412,7 +446,6 @@ export default function RoutesScreen() {
           <MapView
             ref={mapRef}
             style={StyleSheet.absoluteFillObject}
-            provider={PROVIDER_GOOGLE}
             initialRegion={initialRegion}
             showsUserLocation
             showsMyLocationButton={false}
