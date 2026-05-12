@@ -1,6 +1,6 @@
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -47,9 +47,20 @@ export default function TabLayout() {
         options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
       />
       <Tabs.Screen
-        name="marketplace"
-        options={{ title: 'Shop', tabBarIcon: tabIcon('storefront', 'storefront-outline') }}
-      />
+          name="marketplace"
+          options={{
+            title: 'Shop',
+            tabBarIcon: tabIcon('storefront', 'storefront-outline'),
+          }}
+        />
+
+        <Tabs.Screen
+          name="leaderboard"
+          options={{
+            title: 'Ranks',
+            tabBarIcon: tabIcon('trophy', 'trophy-outline'),
+          }}
+        />
       <Tabs.Screen
         name="profile"
         options={{ title: 'Profile', tabBarIcon: tabIcon('person', 'person-outline') }}

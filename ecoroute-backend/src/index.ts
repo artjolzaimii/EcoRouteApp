@@ -10,6 +10,7 @@ import badgesRoutes from "./routes/badges.routes";
 import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
 import impactRoutes from "./routes/impact.routes";
+import leaderboardRoutes from "./routes/leaderboard.routes";
 import marketplaceRoutes from "./routes/marketplace.routes";
 import partnerRoutes from "./routes/partner.routes";
 import partnersRoutes from "./routes/partners.routes";
@@ -18,9 +19,9 @@ import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
 
 // Global error handler
+import { supabaseAdmin } from "./config/supabase";
 import { errorMiddleware } from "./middleware/error.middleware";
 import tripsRoutes from "./routes/trips.routes";
-import { supabaseAdmin } from "./config/supabase";
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
@@ -66,6 +67,7 @@ app.get("/health", (_req, res) => {
 // ─── API routes ───────────────────────────────────────────────────────────────
 
 app.use("/api/auth", authRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/routes", routingRoutes);
 app.use("/api/trips", tripsRoutes);
 app.use("/api/user", usersRoutes);
