@@ -46,6 +46,19 @@ module.exports = ({ config }) => ({
     'expo-web-browser',
     'expo-router',
     [
+      'expo-image-picker',
+      {
+        photosPermission: 'EcoRoute accesses your photos to let you set a profile picture.',
+      },
+    ],
+    [
+      'expo-location',
+      {
+        locationAlwaysAndWhenInUsePermission: 'EcoRoute uses your location to find eco-friendly routes.',
+        locationWhenInUsePermission: 'EcoRoute uses your location to find eco-friendly routes.',
+      },
+    ],
+    [
       'expo-splash-screen',
       {
         image: './assets/images/splash-icon.png',
