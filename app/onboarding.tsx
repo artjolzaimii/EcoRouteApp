@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
+import { markOnboardingComplete } from '@/lib/preferences';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
@@ -68,15 +69,17 @@ export default function OnboardingScreen() {
     });
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (current < cards.length - 1) {
       goToNext(current + 1);
     } else {
+      await markOnboardingComplete();
       router.push('/location-permission');
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    await markOnboardingComplete();
     router.push('/location-permission');
   };
 
