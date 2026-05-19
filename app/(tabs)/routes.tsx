@@ -2,6 +2,7 @@ import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { MoodSelector } from '@/components/MoodSelector';
 import { Colors, Shadow } from '@/constants/theme';
 import { getEcoRoutes, recordPartnerClick } from '@/lib/api';
+import { usePreferences, formatDistance } from '@/lib/preferences';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
   flattenRouteSegments,
@@ -81,6 +82,7 @@ function carbonScoreStyle(score: number): { bg: string; text: string; label: str
 export default function RoutesScreen() {
   const insets = useSafeAreaInsets();
   const { state } = useRouteStore();
+  const { prefs } = usePreferences();
   const mapRef = useRef<MapView>(null);
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -282,7 +284,7 @@ export default function RoutesScreen() {
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
-                <Text style={styles.routeCardMetaText}>{route.distanceKm.toFixed(1)} km</Text>
+                <Text style={styles.routeCardMetaText}>{formatDistance(route.distanceKm, prefs.distanceUnit)}</Text>
                 <Ionicons name="time-outline" size={12} color={Colors.gray500} />
                 <Text style={styles.routeCardMetaText}>{route.durationMin} min</Text>
               </View>
@@ -294,14 +296,16 @@ export default function RoutesScreen() {
         </View>
 
         <View style={styles.routeCardStats}>
-          <View style={styles.statItem}>
-            <Ionicons name="leaf-outline" size={13} color={Colors.emerald600} />
-            <Text style={styles.statEco}>
-              {route.co2Grams === 0
-                ? 'Zero emissions'
-                : `${(route.co2Grams / 1000).toFixed(2)} kg CO2`}
-            </Text>
-          </View>
+          {prefs.showCo2OnMap && (
+            <View style={styles.statItem}>
+              <Ionicons name="leaf-outline" size={13} color={Colors.emerald600} />
+              <Text style={styles.statEco}>
+                {route.co2Grams === 0
+                  ? 'Zero emissions'
+                  : `${(route.co2Grams / 1000).toFixed(2)} kg CO2`}
+              </Text>
+            </View>
+          )}
           <View style={styles.statItem}>
             <Ionicons name="flash-outline" size={13} color={Colors.purple600} />
             <Text style={styles.statGray}>

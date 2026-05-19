@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
 import { Colors, Shadow } from '@/constants/theme';
 
 const CREAM = '#F1EFE8';
@@ -41,6 +42,15 @@ export default function NotificationPermissionScreen() {
     ]).start();
   }, []);
 
+  const enableNotifications = async () => {
+    try {
+      await Notifications.requestPermissionsAsync();
+    } catch {
+      // Permission request failed or not supported on this platform — proceed anyway
+    }
+    router.push('/sign-up');
+  };
+
   const goToSignUp = () => router.push('/sign-up');
 
   return (
@@ -66,7 +76,7 @@ export default function NotificationPermissionScreen() {
 
       {/* Buttons */}
       <Animated.View style={[styles.btnsWrap, { opacity: btnsOpacity, transform: [{ translateY: btnsSlide }], paddingBottom: insets.bottom + 16 }]}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={goToSignUp} activeOpacity={0.9}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={enableNotifications} activeOpacity={0.9}>
           <Text style={styles.primaryBtnText}>Enable Notifications</Text>
         </TouchableOpacity>
 

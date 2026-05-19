@@ -182,3 +182,13 @@ export const saveRoute = (payload: {
 
 export const deleteSavedRoute = (id: string): Promise<null> =>
   request<null>('DELETE', `/api/saved-routes/${id}`);
+
+// ─────────────────────────────────────────────
+// Referrals
+// ─────────────────────────────────────────────
+
+export const applyReferralCode = (referralCode: string): Promise<{ referralId: string }> =>
+  request<{ referralId: string }>('POST', '/api/referrals/apply', { referralCode });
+
+export const getReferralStats = (): Promise<{ referralCount: number; referralCode: string }> =>
+  request<{ referralCount: number; referralCode: string }>('GET', '/api/referrals/stats');

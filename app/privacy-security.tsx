@@ -14,13 +14,10 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
 import { Colors, Shadow } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-
-const PRIVACY_URL = 'https://yourapp.com/privacy';
-const TERMS_URL = 'https://yourapp.com/terms';
+import { api } from '@/lib/api';
 
 export default function PrivacySecurityScreen() {
   const insets = useSafeAreaInsets();
@@ -80,19 +77,21 @@ export default function PrivacySecurityScreen() {
           style: 'destructive',
           onPress: () => {
             Alert.alert(
-              'Are you sure?',
-              'Type "DELETE" in the box to confirm.',
+              'Final confirmation',
+              'All your trips, badges, EcoPoints, and challenges will be permanently erased.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                  text: 'Confirm Delete',
+                  text: 'Delete Everything',
                   style: 'destructive',
                   onPress: async () => {
                     setDeletingAccount(true);
                     try {
+                      await api.delete('/api/user/account');
                       await signOut();
                       router.replace('/log-in');
-                    } catch {
+                    } catch (err: any) {
+                      Alert.alert('Error', err.message ?? 'Could not delete account. Please try again.');
                       setDeletingAccount(false);
                     }
                   },
@@ -103,10 +102,6 @@ export default function PrivacySecurityScreen() {
         },
       ]
     );
-  };
-
-  const openLink = (url: string) => {
-    WebBrowser.openBrowserAsync(url);
   };
 
   const createdAt = session?.user?.created_at
@@ -255,7 +250,7 @@ export default function PrivacySecurityScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Privacy</Text>
           <View style={styles.card}>
-            <TouchableOpacity style={styles.linkRow} onPress={() => openLink(PRIVACY_URL)} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/privacy-policy' as any)} activeOpacity={0.7}>
               <View style={[styles.infoIconBox, { backgroundColor: Colors.purple100 }]}>
                 <Ionicons name="shield-checkmark-outline" size={18} color={Colors.purple600} />
               </View>
@@ -263,12 +258,12 @@ export default function PrivacySecurityScreen() {
                 <Text style={styles.linkLabel}>Privacy Policy</Text>
                 <Text style={styles.linkSub}>How we collect and use your data</Text>
               </View>
-              <Ionicons name="open-outline" size={16} color={Colors.gray400} />
+              <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
-            <TouchableOpacity style={styles.linkRow} onPress={() => openLink(TERMS_URL)} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/terms-of-service' as any)} activeOpacity={0.7}>
               <View style={[styles.infoIconBox, { backgroundColor: Colors.blue100 }]}>
                 <Ionicons name="document-text-outline" size={18} color={Colors.blue600} />
               </View>
@@ -276,7 +271,7 @@ export default function PrivacySecurityScreen() {
                 <Text style={styles.linkLabel}>Terms of Service</Text>
                 <Text style={styles.linkSub}>Our terms of use agreement</Text>
               </View>
-              <Ionicons name="open-outline" size={16} color={Colors.gray400} />
+              <Ionicons name="chevron-forward-outline" size={16} color={Colors.gray400} />
             </TouchableOpacity>
 
             <View style={styles.divider} />

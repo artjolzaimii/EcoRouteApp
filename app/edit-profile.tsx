@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -37,6 +38,14 @@ const notifConfig: NotifConfig[] = [
   { key: 'ecoPartnerNearby', title: 'Eco-Partner nearby alerts', subtitle: 'Offers from eco businesses on your route' },
 ];
 
+const NOTIF_PREFS_KEY = 'ecoroute_notif_prefs';
+const DEFAULT_NOTIF_PREFS: Record<NotifKey, boolean> = {
+  weeklySummary: true,
+  badgeAlerts: true,
+  streakReminders: false,
+  ecoPartnerNearby: true,
+};
+
 type ProfileData = { fullName: string; email: string; avatarUrl?: string | null };
 
 export default function EditProfileScreen() {
@@ -52,12 +61,7 @@ export default function EditProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
-  const [notifications, setNotifications] = useState<Record<NotifKey, boolean>>({
-    weeklySummary: true,
-    badgeAlerts: true,
-    streakReminders: false,
-    ecoPartnerNearby: true,
-  });
+  const [notifications, setNotifications] = useState<Record<NotifKey, boolean>>(DEFAULT_NOTIF_PREFS);
 
   useEffect(() => {
     Animated.parallel([
@@ -75,6 +79,12 @@ export default function EditProfileScreen() {
         setEmail(session?.user?.email ?? '');
       })
       .finally(() => setLoadingProfile(false));
+
+    AsyncStorage.getItem(NOTIF_PREFS_KEY)
+      .then((raw) => {
+        if (raw) setNotifications({ ...DEFAULT_NOTIF_PREFS, ...JSON.parse(raw) });
+      })
+      .catch(() => {});
   }, []);
 
   const pickImage = async () => {
@@ -125,7 +135,9 @@ export default function EditProfileScreen() {
   };
 
   const toggleNotif = (key: NotifKey, value: boolean) => {
-    setNotifications((prev) => ({ ...prev, [key]: value }));
+    const updated = { ...notifications, [key]: value };
+    setNotifications(updated);
+    AsyncStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(updated)).catch(() => {});
   };
 
   const handleSave = async () => {

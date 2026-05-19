@@ -9,17 +9,18 @@ import authRoutes from "./routes/auth.routes";
 import badgesRoutes from "./routes/badges.routes";
 import challengesRoutes from "./routes/challenges.routes";
 import couponsRoutes from "./routes/coupons.routes";
-import heatmapRoutes from "./routes/heatmap.routes";
-import pinsRoutes from "./routes/pins.routes";
 import forumRoutes from "./routes/forum.routes";
+import heatmapRoutes from "./routes/heatmap.routes";
 import impactRoutes from "./routes/impact.routes";
 import leaderboardRoutes from "./routes/leaderboard.routes";
 import marketplaceRoutes from "./routes/marketplace.routes";
 import partnerRoutes from "./routes/partner.routes";
 import partnersRoutes from "./routes/partners.routes";
+import pinsRoutes from "./routes/pins.routes";
 import routingRoutes from "./routes/routing.routes";
 import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
+
 
 // Global error handler
 import { supabaseAdmin } from "./config/supabase";
@@ -89,6 +90,7 @@ app.use("/api/saved-routes", savedRoutesRoutes);
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/partner", partnerRoutes);
 app.use("/api/admin", adminRoutes);
+//app.use("/api/referrals", referralsRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 

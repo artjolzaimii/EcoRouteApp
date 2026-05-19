@@ -143,7 +143,11 @@ export default function ProfileScreen() {
   const displayName = profile?.fullName ?? session?.user?.email?.split('@')[0] ?? 'You';
   const displayEmail = profile?.email ?? session?.user?.email ?? '';
   const totalCo2Kg = profile?.stats ? gramsToKg(profile.stats.totalCo2SavedG) : '0.0';
-  const memberSince = profile?.createdAt ? formatMemberSince(profile.createdAt) : '—';
+  const memberSince = profile?.createdAt
+    ? formatMemberSince(profile.createdAt)
+    : session?.user?.created_at
+      ? formatMemberSince(session.user.created_at)
+      : '—';
   const totalPoints = profile?.stats?.totalPoints ?? 0;
   const ecoLevel = getEcoLevel(totalPoints);
   const trees = treesEquivalent(profile?.stats?.totalCo2SavedG ?? 0);
@@ -207,7 +211,7 @@ export default function ProfileScreen() {
         {
           icon: 'people-outline',
           label: 'Friends & Leaderboard',
-          onPress: () => Alert.alert('Coming Soon', 'Leaderboards are coming in the next update!'),
+          route: '/(tabs)/leaderboard',
         },
         { icon: 'share-social-outline', label: 'Invite Friends', route: '/invite-friends' },
         {
