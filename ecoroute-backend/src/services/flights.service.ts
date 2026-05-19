@@ -1,6 +1,7 @@
 import { haversineDistance } from "../utils/helpers";
 import { calculateFlightCO2 } from "./carbon.service";
 import { prisma } from "../config/prisma";
+import { cacheGet, cacheSet } from "./cache.service";
 
 export const findNearestAirport = async (lat: number, lng: number) => {
   try {
@@ -37,6 +38,11 @@ export const getFlightOption = async (
   const straightLineKm = haversineDistance(originLat, originLng, destLat, destLng);
 
   if (straightLineKm < 300) return null;
+
+  // Flight output is fully deterministic (no live data) — cache for 1 hour
+  const cacheKey = `flights:${originLat.toFixed(3)}:${originLng.toFixed(3)}:${destLat.toFixed(3)}:${destLng.toFixed(3)}`;
+  const cached = await cacheGet<any>(cacheKey);
+  if (cached) return cached;
 
   try {
     const [originAirport, destAirport] = await Promise.all([
@@ -82,7 +88,7 @@ export const getFlightOption = async (
       );
     }
 
-    return {
+    const result = {
       mode:            "PLANE",
       durationMin:     totalDurationMin,
       co2Grams,
@@ -127,6 +133,9 @@ export const getFlightOption = async (
       note:            "CO₂ estimate covers the flight segment only (IPCC factors, RFI 1.9). Ground access CO₂ not included.",
       dataSource:      "CALCULATED",
     };
+
+    await cacheSet(cacheKey, result, 3600); // 1h — fully deterministic, airports don't move
+    return result;
 
   } catch {
     return null;

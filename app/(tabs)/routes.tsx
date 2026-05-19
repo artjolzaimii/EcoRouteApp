@@ -149,6 +149,14 @@ export default function RoutesScreen() {
     });
   }, [selectedIndex, routeCoords]);
 
+  // [PERF] Time from mount until routes are painted
+  const _perfMountTime = useRef(Date.now());
+  useEffect(() => {
+    if (hasAnyRoutes) {
+      console.log(`[PERF][ROUTES] RoutesScreen: mounted → routes visible in ${Date.now() - _perfMountTime.current}ms`);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Must be declared before the early return to satisfy Rules of Hooks
   const syntheticInjected = useRef(false);
   useEffect(() => {

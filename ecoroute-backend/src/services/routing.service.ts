@@ -486,10 +486,17 @@ export async function generateEcoRoutes(params: {
 }): Promise<EcoRoutesResponseData> {
   const { origin, destination, mood, departureTime } = params;
 
+  // [PERF] Master timer for generateEcoRoutes
+  const _perfT0 = Date.now();
+  console.log('[PERF][ROUTES] generateEcoRoutes: start');
+
   // v6: HURRY weights carbon→0.10/time→0.80; flight multi-segment; estimated cycling penalty
   const cacheKey = `eco:v6:${routeCacheKey(origin.lat, origin.lng, destination.lat, destination.lng)}-${mood ?? "none"}`;
+  const _perfTCache0 = Date.now();
   const cached = await cacheGet<EcoRoutesResponseData>(cacheKey);
+  console.log(`[PERF][ROUTES] generateEcoRoutes: cache lookup=${Date.now() - _perfTCache0}ms`);
   if (cached) {
+    console.log(`[PERF][ROUTES] generateEcoRoutes: CACHE HIT — total=${Date.now() - _perfT0}ms | routes=${cached.routes?.length ?? 0}`);
     console.log(`[Routing] Cache HIT for ${cacheKey} — returning cached result (${cached.routes?.length ?? 0} routes)`);
     return cached;
   }
@@ -535,10 +542,39 @@ export async function generateEcoRoutes(params: {
       ? buildCyclingPlusTransit(origin, destination)
       : Promise.resolve(null);
 
-  const [googleResults, cyclingTransitResult] = await Promise.all([
+  // Train and flight fetches are independent of Google — start all in parallel
+  const needsTrains = journeyType === "INTERCITY" || journeyType === "REGIONAL";
+  const needsFlights = journeyType === "INTERCITY" || journeyType === "INTERNATIONAL";
+
+  // [PERF] All external fetches in parallel
+  const _perfTFetch0 = Date.now();
+  console.log(`[PERF][ROUTES] generateEcoRoutes: external fetch start (google=${googleModes.length} trains=${needsTrains} flights=${needsFlights})`);
+
+  const [googleResults, cyclingTransitResult, rawTrainOptions, rawFlightOption] = await Promise.all([
     Promise.all(googleFetches),
     cyclingTransitPromise,
+    needsTrains
+      ? import("./trains.service")
+          .then((mod) => {
+            const departureDate = departureTime ? new Date(departureTime) : new Date();
+            return mod.getTrainOptions(
+              origin.lat, origin.lng,
+              destination.lat, destination.lng,
+              departureDate
+            );
+          })
+          .catch(() => null)
+      : Promise.resolve(null),
+    needsFlights
+      ? import("./flights.service")
+          .then((mod) =>
+            mod.getFlightOption(origin.lat, origin.lng, destination.lat, destination.lng)
+          )
+          .catch(() => null)
+      : Promise.resolve(null),
   ]);
+
+  console.log(`[PERF][ROUTES] generateEcoRoutes: external fetches done in ${Date.now() - _perfTFetch0}ms`);
 
   const candidates: ScoredCandidate[] = [];
   let googleTransitGeometry = "";
@@ -655,52 +691,35 @@ export async function generateEcoRoutes(params: {
 
   let hasTrainData = false;
 
-  if (journeyType === "INTERCITY" || journeyType === "REGIONAL") {
-    try {
-      const trainsMod = await import("./trains.service");
-      const departureDate = departureTime ? new Date(departureTime) : new Date();
-      const trainOptions = await trainsMod.getTrainOptions(
-        origin.lat, origin.lng,
-        destination.lat, destination.lng,
-        departureDate
+  if (rawTrainOptions && (rawTrainOptions as ScoredCandidate[]).length > 0) {
+    const trainCandidates = (rawTrainOptions as ScoredCandidate[]).map((option) => {
+      const hasStepGeometry = option.carbonBreakdown.some(
+        (step) => step.polyline || (step.startLocation && step.endLocation)
       );
-      if (trainOptions && trainOptions.length > 0) {
-        const trainCandidates = (trainOptions as ScoredCandidate[]).map((option) => {
-          const hasStepGeometry = option.carbonBreakdown.some((step) => step.polyline || (step.startLocation && step.endLocation));
-          return {
-            ...option,
-            geometry: option.geometry || googleTransitGeometry,
-            carbonBreakdown: hasStepGeometry || googleTransitBreakdown.length === 0
-              ? option.carbonBreakdown
-              : googleTransitBreakdown,
-          };
-        });
-        candidates.push(...trainCandidates);
-        hasTrainData = true;
-      }
-    } catch {
-      // trains service unavailable
-    }
+      return {
+        ...option,
+        geometry: option.geometry || googleTransitGeometry,
+        carbonBreakdown:
+          hasStepGeometry || googleTransitBreakdown.length === 0
+            ? option.carbonBreakdown
+            : googleTransitBreakdown,
+      };
+    });
+    candidates.push(...trainCandidates);
+    hasTrainData = true;
   }
 
-  if (journeyType === "INTERCITY" || journeyType === "INTERNATIONAL") {
-    try {
-      const flightsMod = await import("./flights.service");
-      const flightOption = await flightsMod.getFlightOption(
-        origin.lat, origin.lng,
-        destination.lat, destination.lng
-      );
-      if (flightOption) {
-        candidates.push(flightOption as ScoredCandidate);
-      }
-    } catch {
-      // flights service unavailable
-    }
+  if (rawFlightOption) {
+    candidates.push(rawFlightOption as ScoredCandidate);
   }
 
   // Partner-assisted route candidates (transit + partner bike pickup)
+  // Only relevant for journeys where transit + last-mile cycling is realistic
+  const partnerAssistRelevant = journeyType === "REGIONAL" || journeyType === "INTERCITY" || journeyType === "INTERNATIONAL";
   try {
-    const partnerCandidates = await buildPartnerAssistedCandidates(origin, destination, distanceKm);
+    const partnerCandidates = partnerAssistRelevant
+      ? await buildPartnerAssistedCandidates(origin, destination, distanceKm)
+      : [];
     if (partnerCandidates.length > 0) {
       console.log(`[Routing] Added ${partnerCandidates.length} partner-assisted candidate(s):`,
         partnerCandidates.map(c => `${c.partnerStop?.partnerName} (${c.co2Grams}g CO2, ${c.durationMin}min)`).join(', ')
@@ -722,6 +741,8 @@ export async function generateEcoRoutes(params: {
   );
 
   // Partner pins along top route
+  const _perfTPartner0 = Date.now();
+  console.log('[PERF][ROUTES] generateEcoRoutes: partner lookup start');
   let partnerPins: PartnerPin[] = [];
   if (rankedRoutes.length > 0 && rankedRoutes[0].geometry) {
     try {
@@ -788,7 +809,11 @@ export async function generateEcoRoutes(params: {
     dataQualityMessage,
   };
 
+  console.log(`[PERF][ROUTES] generateEcoRoutes: partner lookup done in ${Date.now() - _perfTPartner0}ms | pins=${partnerPins.length}`);
+
   await cacheSet(cacheKey, result, 3600);
+
+  console.log(`[PERF][ROUTES] generateEcoRoutes: CACHE MISS total=${Date.now() - _perfT0}ms | routes=${result.routes.length} | journey=${result.journeyType}`);
   return result;
 }
 

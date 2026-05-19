@@ -1,11 +1,11 @@
 import { MoodSelector } from '@/components/MoodSelector';
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { getEcoRoutes, api } from '@/lib/api';
+import { api, getEcoRoutes } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
-import { routeStore } from '@/lib/routeStore';
 import { usePreferences } from '@/lib/preferences';
-import { TripMode, RouteMood } from '@/lib/types';
+import { routeStore } from '@/lib/routeStore';
+import { RouteMood, TripMode } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -243,13 +243,21 @@ export default function HomeScreen() {
     const oLat = originCoords?.lat ?? DEFAULT_REGION.latitude;
     const oLng = originCoords?.lng ?? DEFAULT_REGION.longitude;
 
+    // [PERF] T0 — button tap registered
+    const _perfT0 = Date.now();
+    console.log('[PERF][ROUTES] tap → handleFindRoute start');
+
     setLoadingRoutes(true);
     try {
+      const _perfT1 = Date.now();
+      console.log('[PERF][ROUTES] API request starting');
       const ecoResponse = await getEcoRoutes(
         { lat: oLat, lng: oLng, name: originAddress },
         { lat: destCoords.lat, lng: destCoords.lng, name: destAddress },
         selectedMood,
       );
+      const _perfT2 = Date.now();
+      console.log(`[PERF][ROUTES] API response received | duration=${_perfT2 - _perfT1}ms | routes=${ecoResponse.routes?.length ?? 0} | total-from-tap=${_perfT2 - _perfT0}ms`);
 
       if (!ecoResponse.routes || ecoResponse.routes.length === 0) {
         Alert.alert('No routes found', 'No eco-routes are available for this journey. Try a different destination.');
@@ -267,6 +275,8 @@ export default function HomeScreen() {
         if (recIdx !== -1) bestIndex = recIdx;
       }
 
+      const _perfT3 = Date.now();
+      console.log('[PERF][ROUTES] routeStore.set() starting');
       routeStore.set({
         originLat: oLat,
         originLng: oLng,
@@ -280,13 +290,18 @@ export default function HomeScreen() {
         mood: selectedMood,
         ecoResponse,
       });
+      const _perfT4 = Date.now();
+      console.log(`[PERF][ROUTES] routeStore.set() done | duration=${_perfT4 - _perfT3}ms | total-from-tap=${_perfT4 - _perfT0}ms`);
+
 
       // If autoStartNavigation is enabled, go straight to navigation; otherwise show route options
-      if (prefs.autoStartNavigation) {
-        router.navigate('/navigation' as any);
-      } else {
-        router.navigate('/(tabs)/routes');
-      }
+        if (prefs.autoStartNavigation) {
+          router.navigate('/navigation' as any);
+        } else {
+          console.log('[PERF][ROUTES] navigating to RoutesScreen');
+          router.navigate('/(tabs)/routes');
+        }
+
     } catch (err: any) {
       Alert.alert('Could not get routes', err.message ?? 'Check your connection and try again.');
     } finally {

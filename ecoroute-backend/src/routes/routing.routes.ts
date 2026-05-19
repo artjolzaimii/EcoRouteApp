@@ -40,6 +40,10 @@ router.post(
   "/",
   requireAuth,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // [PERF] Total request wall-clock
+    const _perfReqStart = Date.now();
+    console.log('[PERF][ROUTES] POST /api/routes received');
+
     try {
       const body = req.body;
 
@@ -59,6 +63,7 @@ router.post(
         }
 
         if (!result.routes || result.routes.length === 0) {
+          console.log(`[PERF][ROUTES] POST /api/routes total=${Date.now() - _perfReqStart}ms (no routes)`);
           res.json({
             success: true,
             data: { ...result, message: "No eco-routes found for this journey" },
@@ -66,6 +71,7 @@ router.post(
           return;
         }
 
+        console.log(`[PERF][ROUTES] POST /api/routes total=${Date.now() - _perfReqStart}ms | routes=${result.routes.length} | journey=${result.journeyType}`);
         res.json({ success: true, data: result });
         return;
       }

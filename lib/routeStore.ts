@@ -23,9 +23,15 @@ export const routeStore = {
     const destination = { latitude: data.destLat, longitude: data.destLng };
     const routes = data.ecoResponse?.routes ?? data.routes;
 
+    // [PERF] Time polyline decode for all routes
+    const _perfT0 = Date.now();
+    console.log(`[PERF][ROUTES] routeStore.set: decoding ${routes.length} route(s)`);
     routes.forEach((route) => {
+      const _perfTs = Date.now();
       getRouteMapSegments(route, route.mode, origin, destination);
+      console.log(`[PERF][ROUTES] routeStore.set: mode=${route.mode} decoded in ${Date.now() - _perfTs}ms`);
     });
+    console.log(`[PERF][ROUTES] routeStore.set: all routes decoded in ${Date.now() - _perfT0}ms`);
 
     _state = data;
     notify();
