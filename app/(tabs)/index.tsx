@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { getEcoRoutes, api } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
 import { routeStore } from '@/lib/routeStore';
+import { usePreferences } from '@/lib/preferences';
 import { TripMode, RouteMood } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -111,8 +112,19 @@ function modeMatchesTripMode(modeId: TripMode, routeMode: string): boolean {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { prefs } = usePreferences();
 
+  // Default selected mode to the user's first preferred mode once preferences load
   const [selectedMode, setSelectedMode] = useState<TripMode>('CYCLING');
+  useEffect(() => {
+    if (prefs.preferredModes.length > 0) {
+      const first = prefs.preferredModes[0] as TripMode;
+      if (transportModes.some((m) => m.id === first)) {
+        setSelectedMode(first);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.preferredModes.join(',')]);
   const [selectedMood, setSelectedMood] = useState<RouteMood | undefined>(undefined);
   const [originAddress, setOriginAddress] = useState('Current location');
   const [destAddress, setDestAddress] = useState('');
@@ -284,7 +296,12 @@ export default function HomeScreen() {
         ecoResponse,
       });
 
-      router.navigate('/(tabs)/routes');
+      // If autoStartNavigation is enabled, go straight to navigation; otherwise show route options
+      if (prefs.autoStartNavigation) {
+        router.navigate('/navigation' as any);
+      } else {
+        router.navigate('/(tabs)/routes');
+      }
     } catch (err: any) {
       Alert.alert('Could not get routes', err.message ?? 'Check your connection and try again.');
     } finally {

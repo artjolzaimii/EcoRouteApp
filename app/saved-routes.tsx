@@ -16,6 +16,7 @@ import { Colors, Shadow } from '@/constants/theme';
 import { deleteSavedRoute, getSavedRoutes } from '@/lib/api';
 import { routeStore } from '@/lib/routeStore';
 import { routeModeIcon } from '@/lib/routeMap';
+import { usePreferences, formatDistance } from '@/lib/preferences';
 import { EcoRoutesResponse, RouteMood, SavedRouteItem } from '@/lib/types';
 
 const VALID_MOODS = new Set<string>(['RELAXED', 'HURRY', 'EXERCISE', 'CHEAPEST']);
@@ -68,6 +69,7 @@ function reconstructStore(item: SavedRouteItem, navigate: 'navigation' | 'route-
 
 export default function SavedRoutesScreen() {
   const insets = useSafeAreaInsets();
+  const { prefs } = usePreferences();
   const [routes, setRoutes] = useState<SavedRouteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -200,7 +202,7 @@ export default function SavedRoutesScreen() {
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                   <Ionicons name="navigate-outline" size={13} color={Colors.gray500} />
-                  <Text style={styles.statText}>{item.distanceKm.toFixed(1)} km</Text>
+                  <Text style={styles.statText}>{formatDistance(item.distanceKm, prefs.distanceUnit)}</Text>
                 </View>
                 <View style={styles.statItem}>
                   <Ionicons name="time-outline" size={13} color={Colors.gray500} />

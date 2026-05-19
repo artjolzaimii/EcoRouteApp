@@ -207,7 +207,7 @@ export default function ProfileScreen() {
         {
           icon: 'people-outline',
           label: 'Friends & Leaderboard',
-          onPress: () => Alert.alert('Coming Soon', 'Leaderboards are coming in the next update!'),
+          route: '/(tabs)/leaderboard',
         },
         { icon: 'share-social-outline', label: 'Invite Friends', route: '/invite-friends' },
         {

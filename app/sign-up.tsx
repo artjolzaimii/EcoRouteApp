@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '@/context/AuthContext';
+import { applyReferralCode } from '@/lib/api';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
@@ -32,6 +33,7 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -65,6 +67,13 @@ export default function SignUpScreen() {
     setLoading(true);
     try {
       const result = await signUp(email.trim(), password, fullName.trim());
+
+      // Apply referral code after successful registration (best-effort, non-blocking)
+      const trimmedCode = referralCode.trim().toUpperCase();
+      if (trimmedCode) {
+        applyReferralCode(trimmedCode).catch(() => {});
+      }
+
       if (result.needsEmailVerification) {
         router.push({ pathname: '/email-verification', params: { email: result.email } });
       } else {
@@ -164,6 +173,20 @@ export default function SignUpScreen() {
                 <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
               </TouchableOpacity>
             </View>
+          </View>
+
+          {/* Referral Code (optional) */}
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Referral Code (optional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="ECO-XXXXXX"
+              placeholderTextColor={Colors.gray400}
+              autoCapitalize="characters"
+              returnKeyType="done"
+              value={referralCode}
+              onChangeText={setReferralCode}
+            />
           </View>
 
           {/* Sign Up Button */}
