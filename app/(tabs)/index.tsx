@@ -102,14 +102,11 @@ export default function HomeScreen() {
   const { session } = useAuth();
   const { prefs } = usePreferences();
 
-  // Default selected mode to the user's first preferred mode once preferences load
   const [selectedMode, setSelectedMode] = useState<TripMode>('CYCLING');
   useEffect(() => {
-    if (prefs.preferredModes.length > 0) {
-      const first = prefs.preferredModes[0] as TripMode;
-      if (transportModes.some((m) => m.id === first)) {
-        setSelectedMode(first);
-      }
+    const first = prefs.preferredModes[0] as TripMode | undefined;
+    if (first && (first === 'CYCLING' || first === 'TRANSIT' || first === 'WALKING')) {
+      setSelectedMode(first);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs.preferredModes.join(',')]);

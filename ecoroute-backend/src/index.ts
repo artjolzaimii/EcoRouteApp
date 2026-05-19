@@ -21,6 +21,7 @@ import routingRoutes from "./routes/routing.routes";
 import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
 
+
 // Global error handler
 import { supabaseAdmin } from "./config/supabase";
 import { errorMiddleware } from "./middleware/error.middleware";
@@ -89,6 +90,7 @@ app.use("/api/saved-routes", savedRoutesRoutes);
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/partner", partnerRoutes);
 app.use("/api/admin", adminRoutes);
+//app.use("/api/referrals", referralsRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 

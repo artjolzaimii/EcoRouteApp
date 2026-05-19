@@ -171,6 +171,8 @@ model Profile {
   savedRoutes       SavedRoute[]
   partnerProfile    PartnerProfile?
   marketplaceOrders MarketplaceOrder[]
+  referralsSent     Referral[] @relation("ReferralsSent")
+  referralsReceived Referral[] @relation("ReferralsReceived")
 
   @@map("profiles")
 }
