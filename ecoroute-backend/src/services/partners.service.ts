@@ -1,6 +1,9 @@
 import { prisma } from "../config/prisma";
 import { haversineMeters, haversineDistance } from "../utils/helpers";
 import { NearbyPartner } from "../types";
+import { cacheGet, cacheSet } from "./cache.service";
+
+const PARTNER_CACHE_TTL = 600; // 10 minutes
 
 // ─────────────────────────────────────────────
 // findNearbyPartners (existing — kept)
@@ -11,29 +14,43 @@ export async function findNearbyPartners(
   lng: number,
   radiusMeters: number = 1000
 ): Promise<NearbyPartner[]> {
-  const partners = await prisma.ecoPartner.findMany({
-    where: { status: "ACTIVE" },
-    include: {
-      coupons: {
-        where: {
-          isActive: true,
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gte: new Date() } },
-          ],
-          AND: [
-            {
-              OR: [
-                { totalStock: null },
-              ],
-            },
-          ],
+  const cacheKey = "partners:all:active";
+  let partners = await cacheGet<any[]>(cacheKey);
+
+  if (partners) {
+    if (process.env.NODE_ENV === "development") {
+      console.log("[Partners] Cache HIT: partners:all:active");
+    }
+  } else {
+    if (process.env.NODE_ENV === "development") {
+      console.log("[Partners] Cache MISS: partners:all:active — querying DB");
+    }
+    partners = await prisma.ecoPartner.findMany({
+      where: { status: "ACTIVE" },
+      include: {
+        coupons: {
+          where: {
+            isActive: true,
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gte: new Date() } },
+            ],
+            AND: [
+              {
+                OR: [
+                  { totalStock: null },
+                ],
+              },
+            ],
+          },
+          orderBy: { pointsCost: "asc" },
+          take: 1,
         },
-        orderBy: { pointsCost: "asc" },
-        take: 1,
       },
-    },
-  });
+    });
+    // Ignore Redis errors — fallback is already the fresh DB result above
+    await cacheSet(cacheKey, partners, PARTNER_CACHE_TTL);
+  }
 
   const nearby: NearbyPartner[] = [];
 
@@ -130,20 +147,34 @@ export const getEcoBusinessPartnersAlongRoute = async (
   prismaClient: typeof prisma = prisma
 ) => {
   try {
-    const allPartners = await (prismaClient.ecoPartner as any).findMany({
-      where: {
-        status: "ACTIVE",
-        partnerType: "ECO_BUSINESS",
-      },
-      include: {
-        coupons: {
-          where: {
-            isActive: true,
-            expiresAt: { gt: new Date() },
+    const cacheKey = "partners:eco_business:active";
+    let allPartners = await cacheGet<any[]>(cacheKey);
+
+    if (allPartners) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[Partners] Cache HIT: partners:eco_business:active");
+      }
+    } else {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[Partners] Cache MISS: partners:eco_business:active — querying DB");
+      }
+      allPartners = await (prismaClient.ecoPartner as any).findMany({
+        where: {
+          status: "ACTIVE",
+          partnerType: "ECO_BUSINESS",
+        },
+        include: {
+          coupons: {
+            where: {
+              isActive: true,
+              expiresAt: { gt: new Date() },
+            },
           },
         },
-      },
-    });
+      });
+      // Ignore Redis errors — fresh DB result is already in memory
+      await cacheSet(cacheKey, allPartners, PARTNER_CACHE_TTL);
+    }
 
     const nearby = (allPartners as any[]).filter((partner: any) => {
       const triggerRadius = partner.radiusMeters ?? 500;
@@ -156,17 +187,26 @@ export const getEcoBusinessPartnersAlongRoute = async (
       });
     });
 
-    // Record pin views for analytics
+    // Fire analytics writes in the background — never block the route response
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    for (const partner of nearby) {
-      await prismaClient.partnerAnalytics.upsert({
-        where: { partnerId_date: { partnerId: partner.id, date: today } },
-        update: { pinViews: { increment: 1 } },
-        create: { partnerId: partner.id, date: today, pinViews: 1 },
-      }).catch(() => {});
-    }
+    Promise.allSettled(
+      nearby.map((partner: any) =>
+        prismaClient.partnerAnalytics.upsert({
+          where: { partnerId_date: { partnerId: partner.id, date: today } },
+          update: { pinViews: { increment: 1 } },
+          create: { partnerId: partner.id, date: today, pinViews: 1 },
+        })
+      )
+    ).then((results) => {
+      if (process.env.NODE_ENV === "development") {
+        const failed = results.filter((r) => r.status === "rejected").length;
+        if (failed > 0) {
+          console.warn(`[Partners] ${failed} analytics upsert(s) failed silently`);
+        }
+      }
+    }).catch(() => {}); // Never surface analytics errors to the caller
 
     return nearby.map((partner: any) => ({
       id:           partner.id,
@@ -225,10 +265,23 @@ export async function getMobilityStopsForRoute(
   prismaClient: typeof prisma = prisma
 ): Promise<MobilityStop[]> {
   try {
-    const partners = await (prismaClient as any).ecoPartner.findMany({
-      where: { status: "ACTIVE", partnerType: "MOBILITY_PROVIDER" },
-      include: { locations: { where: { isActive: true } } },
-    });
+    const mobilityCacheKey = "partners:mobility:active";
+    let partners = await cacheGet<any[]>(mobilityCacheKey);
+
+    if (partners) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[Partners] Cache HIT: partners:mobility:active");
+      }
+    } else {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[Partners] Cache MISS: partners:mobility:active — querying DB");
+      }
+      partners = await (prismaClient as any).ecoPartner.findMany({
+        where: { status: "ACTIVE", partnerType: "MOBILITY_PROVIDER" },
+        include: { locations: { where: { isActive: true } } },
+      });
+      await cacheSet(mobilityCacheKey, partners, PARTNER_CACHE_TTL);
+    }
 
     const directKm = haversineDistance(
       origin.lat, origin.lng,

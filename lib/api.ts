@@ -24,7 +24,13 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  // [PERF] Only instrument the route search request to avoid log noise
+  const _isRouteReq = path === '/api/routes';
+  const _perfT0 = _isRouteReq ? Date.now() : 0;
+
+  if (_isRouteReq) console.log('[PERF][ROUTES] api: getAccessToken() start');
   const token = await getAccessToken();
+  if (_isRouteReq) console.log(`[PERF][ROUTES] api: getAccessToken() done in ${Date.now() - _perfT0}ms`);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -34,15 +40,22 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const _perfT1 = _isRouteReq ? Date.now() : 0;
+  if (_isRouteReq) console.log(`[PERF][ROUTES] api: fetch() → ${API_BASE_URL}${path}`);
+
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
+  if (_isRouteReq) console.log(`[PERF][ROUTES] api: fetch() done in ${Date.now() - _perfT1}ms | status=${res.status}`);
+
   let json: { success: boolean; data?: T; error?: string };
   try {
+    const _perfT2 = _isRouteReq ? Date.now() : 0;
     json = await res.json();
+    if (_isRouteReq) console.log(`[PERF][ROUTES] api: res.json() parsed in ${Date.now() - _perfT2}ms`);
   } catch {
     throw new Error(`Server returned non-JSON response (status ${res.status})`);
   }
