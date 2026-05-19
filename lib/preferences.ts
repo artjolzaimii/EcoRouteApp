@@ -53,3 +53,20 @@ export function usePreferences(): { prefs: Preferences; loaded: boolean } {
 
   return { prefs, loaded };
 }
+
+// ─── Onboarding completion flag ───────────────────────────────────────────────
+
+export const ONBOARDING_COMPLETE_KEY = 'ecoroute_onboarding_complete';
+
+export async function markOnboardingComplete(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
+  } catch {}
+}
+
+export async function hasCompletedOnboarding(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(ONBOARDING_COMPLETE_KEY)) === 'true';
+  } catch {}
+  return false;
+}
