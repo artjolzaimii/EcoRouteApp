@@ -68,6 +68,11 @@ export default function RootLayout() {
           <Stack.Screen name="coupon-redeemed" options={{ headerShown: false }} />
           <Stack.Screen name="coupon-already-redeemed" options={{ headerShown: false }} />
 
+          {/* Marketplace */}
+          <Stack.Screen name="marketplace-product" options={{ headerShown: false }} />
+          <Stack.Screen name="marketplace-checkout" options={{ headerShown: false }} />
+          <Stack.Screen name="marketplace-confirmation" options={{ headerShown: false, animation: 'fade' }} />
+
           {/* Legacy */}
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         </Stack>

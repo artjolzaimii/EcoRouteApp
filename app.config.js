@@ -15,6 +15,9 @@ module.exports = ({ config }) => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.anonymous.EcoRouteApp',
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
     config: {
       googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
     },
@@ -42,6 +45,19 @@ module.exports = ({ config }) => ({
   plugins: [
     'expo-web-browser',
     'expo-router',
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'EcoRoute accesses your photos to let you set a profile picture.',
+      },
+    ],
+    [
+      'expo-location',
+      {
+        locationAlwaysAndWhenInUsePermission: 'EcoRoute uses your location to find eco-friendly routes.',
+        locationWhenInUsePermission: 'EcoRoute uses your location to find eco-friendly routes.',
+      },
+    ],
     [
       'expo-splash-screen',
       {

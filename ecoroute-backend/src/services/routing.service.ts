@@ -624,23 +624,27 @@ export async function generateEcoRoutes(params: {
   // ── Fallback cycling — if distance is cyclable but Google returned nothing ──
   const hasCycling = candidates.some(c => c.mode === "BICYCLING" || c.mode === "CYCLING");
   if (!hasCycling && distanceKm <= CYCLING_MAX_KM && (journeyType === "MICRO" || journeyType === "URBAN")) {
-    const cyclingDurationMin = Math.round((distanceKm / CYCLING_SPEED_KMH) * 60);
-    const existingGeom = candidates.find(c => c.geometry)?.geometry ?? "";
-    console.log(`[Routing] No cycling from Google — adding estimated fallback (${distanceKm} km, ~${cyclingDurationMin} min)`);
+    // Use walking road distance when available — more accurate than haversine straight-line
+    const walkingCandidate = candidates.find(c => c.mode === "WALKING");
+    const cyclingDistanceKm = walkingCandidate?.distanceKm ?? distanceKm;
+    const cyclingCarCO2 = Math.round(cyclingDistanceKm * 170);
+    const cyclingDurationMin = Math.round((cyclingDistanceKm / CYCLING_SPEED_KMH) * 60);
+    const existingGeom = walkingCandidate?.geometry ?? candidates.find(c => c.geometry)?.geometry ?? "";
+    console.log(`[Routing] No cycling from Google — adding estimated fallback (${cyclingDistanceKm} km, ~${cyclingDurationMin} min)`);
     candidates.push({
       mode: "BICYCLING",
       durationMin: cyclingDurationMin,
-      distanceKm,
+      distanceKm: cyclingDistanceKm,
       co2Grams: 0,
-      carEquivalentCO2: carBaselineCO2,
-      savedVsCar: carBaselineCO2,
+      carEquivalentCO2: cyclingCarCO2,
+      savedVsCar: cyclingCarCO2,
       carbonScore: 100,
-      greenPoints: calculateGreenPoints(carBaselineCO2, "BICYCLING"),
+      greenPoints: calculateGreenPoints(cyclingCarCO2, "BICYCLING"),
       carbonBreakdown: [{
         mode: "BICYCLING",
-        distanceKm,
+        distanceKm: cyclingDistanceKm,
         co2Grams: 0,
-        instruction: `Cycle ${distanceKm.toFixed(1)} km to destination`,
+        instruction: `Cycle ${cyclingDistanceKm.toFixed(1)} km to destination`,
         startLocation: origin,
         endLocation: destination,
       }],

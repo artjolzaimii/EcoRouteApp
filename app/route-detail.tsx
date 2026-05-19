@@ -26,7 +26,7 @@ import {
 import { getMoodMeta } from '@/lib/mood';
 import { saveRoute } from '@/lib/api';
 
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -177,7 +177,6 @@ export default function RouteDetailScreen() {
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
-          provider={PROVIDER_GOOGLE}
           initialRegion={initialRegion}
           scrollEnabled
           zoomEnabled

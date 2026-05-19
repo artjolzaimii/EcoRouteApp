@@ -18,6 +18,33 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  PARTNER
+}
+
+// ── Marketplace enums ──────────────────────────────────────────────────────────
+
+enum ListingType {
+  PRODUCT
+  SERVICE
+}
+
+enum ListingPaymentType {
+  MONEY_ONLY
+  FLEXIBLE
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  INACTIVE
+}
+
+enum MarketplaceOrderStatus {
+  PENDING
+  SIMULATED_PAID
+  COMPLETED
+  CANCELLED
 }
 
 enum TripMode {
@@ -53,6 +80,7 @@ enum PartnerStatus {
 enum PartnerType {
   MOBILITY_PROVIDER
   ECO_BUSINESS
+
   @@map("partner_type")
 }
 
@@ -61,6 +89,7 @@ enum VehicleType {
   EBIKE
   ESCOOTER
   CARGO_BIKE
+
   @@map("vehicle_type")
 }
 
@@ -82,10 +111,10 @@ enum EarnType {
 }
 
 enum ChallengeType {
-  TRIP_COUNT    // complete N trips (any mode)
-  DISTANCE_KM   // travel N km total
-  CO2_SAVED_G   // save N grams of CO2 vs car
-  CYCLING_KM    // cycle N km (CYCLING mode only)
+  TRIP_COUNT // complete N trips (any mode)
+  DISTANCE_KM // travel N km total
+  CO2_SAVED_G // save N grams of CO2 vs car
+  CYCLING_KM // cycle N km (CYCLING mode only)
 }
 
 enum ConditionType {
@@ -104,6 +133,13 @@ enum PointsLedgerType {
   EXPIRE
 }
 
+enum PinCategory {
+  TRASH
+  CLEANUP
+  ECO_OFFER
+  COMMUNITY
+}
+
 // ─────────────────────────────────────────────
 // Profile
 // ─────────────────────────────────────────────
@@ -119,16 +155,22 @@ model Profile {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  stats           UserStats?
-  trips           Trip[]
-  userCoupons     UserCoupon[]
-  userBadges      UserBadge[]
-  userChallenges  UserChallenge[]
-  pointsLedger    PointsLedger[]
-  notifications   Notification[]
-  savedRoutes     SavedRoute[]
-  referralsSent     Referral[] @relation("ReferralsSent")
-  referralsReceived Referral[] @relation("ReferralsReceived")
+  stats             UserStats?
+  trips             Trip[]
+  userCoupons       UserCoupon[]
+  userBadges        UserBadge[]
+  userChallenges    UserChallenge[]
+  pointsLedger      PointsLedger[]
+  notifications     Notification[]
+  mapPins           MapPin[]
+  pinUpvotes        PinUpvote[]
+  pinComments       PinComment[]
+  forums            Forum[]
+  forumLikes        ForumLike[]
+  forumComments     ForumComment[]
+  savedRoutes       SavedRoute[]
+  partnerProfile    PartnerProfile?
+  marketplaceOrders MarketplaceOrder[]
 
   @@map("profiles")
 }
@@ -138,16 +180,16 @@ model Profile {
 // ─────────────────────────────────────────────
 
 model UserStats {
-  id                String   @id @default(cuid())
-  profileId         String   @unique @map("profile_id")
-  totalPoints       Int      @default(0) @map("total_points")
-  totalTrips        Int      @default(0) @map("total_trips")
-  totalDistanceKm   Decimal  @default(0) @map("total_distance_km") @db.Decimal(10, 2)
-  totalCo2SavedG    Int      @default(0) @map("total_co2_saved_g")  // grams
-  currentStreak     Int      @default(0) @map("current_streak")
-  longestStreak     Int      @default(0) @map("longest_streak")
-  lastTripAt        DateTime? @map("last_trip_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(cuid())
+  profileId       String    @unique @map("profile_id")
+  totalPoints     Int       @default(0) @map("total_points")
+  totalTrips      Int       @default(0) @map("total_trips")
+  totalDistanceKm Decimal   @default(0) @map("total_distance_km") @db.Decimal(10, 2)
+  totalCo2SavedG  Int       @default(0) @map("total_co2_saved_g") // grams
+  currentStreak   Int       @default(0) @map("current_streak")
+  longestStreak   Int       @default(0) @map("longest_streak")
+  lastTripAt      DateTime? @map("last_trip_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
@@ -171,9 +213,9 @@ model Trip {
   destAddress     String     @map("dest_address")
   distanceKm      Decimal    @map("distance_km") @db.Decimal(10, 2)
   durationMinutes Int        @map("duration_minutes")
-  co2SavedG       Int        @default(0) @map("co2_saved_g")      // grams saved vs car
-  co2EmittedG     Int        @default(0) @map("co2_emitted_g")    // grams emitted
-  ecoScore        Int        @default(0) @map("eco_score")         // 0-100
+  co2SavedG       Int        @default(0) @map("co2_saved_g") // grams saved vs car
+  co2EmittedG     Int        @default(0) @map("co2_emitted_g") // grams emitted
+  ecoScore        Int        @default(0) @map("eco_score") // 0-100
   pointsEarned    Int        @default(0) @map("points_earned")
   completedAt     DateTime?  @map("completed_at")
   createdAt       DateTime   @default(now()) @map("created_at")
@@ -190,22 +232,22 @@ model Trip {
 // ─────────────────────────────────────────────
 
 model EcoPartner {
-  id            String          @id @default(cuid())
-  name          String
-  description   String
-  category      PartnerCategory
-  status        PartnerStatus   @default(ACTIVE)
-  logoUrl       String?         @map("logo_url")
-  address       String
-  lat           Decimal         @db.Decimal(10, 7)
-  lng           Decimal         @db.Decimal(10, 7)
-  radiusMeters  Int             @default(500) @map("radius_meters")
-  websiteUrl    String?         @map("website_url")
-  pointsPerVisit Int            @default(0) @map("points_per_visit")
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+  id             String          @id @default(cuid())
+  name           String
+  description    String
+  category       PartnerCategory
+  status         PartnerStatus   @default(ACTIVE)
+  logoUrl        String?         @map("logo_url")
+  address        String
+  lat            Decimal         @db.Decimal(10, 7)
+  lng            Decimal         @db.Decimal(10, 7)
+  radiusMeters   Int             @default(500) @map("radius_meters")
+  websiteUrl     String?         @map("website_url")
+  pointsPerVisit Int             @default(0) @map("points_per_visit")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
-  partnerType   PartnerType       @default(ECO_BUSINESS) @map("partner_type")
+  partnerType PartnerType @default(ECO_BUSINESS) @map("partner_type")
 
   coupons   Coupon[]
   analytics PartnerAnalytics[]
@@ -219,17 +261,17 @@ model EcoPartner {
 // ─────────────────────────────────────────────
 
 model PartnerLocation {
-  id            String       @id @default(cuid())
-  partnerId     String       @map("partner_id")
-  externalId    String?      @map("external_id")
-  name          String?
-  lat           Decimal      @db.Decimal(10, 7)
-  lng           Decimal      @db.Decimal(10, 7)
-  vehicleCount  Int?         @map("vehicle_count")
-  vehicleType   VehicleType? @map("vehicle_type")
-  isActive      Boolean      @default(true) @map("is_active")
-  lastSyncedAt  DateTime?    @map("last_synced_at")
-  partner       EcoPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  id           String       @id @default(cuid())
+  partnerId    String       @map("partner_id")
+  externalId   String?      @map("external_id")
+  name         String?
+  lat          Decimal      @db.Decimal(10, 7)
+  lng          Decimal      @db.Decimal(10, 7)
+  vehicleCount Int?         @map("vehicle_count")
+  vehicleType  VehicleType? @map("vehicle_type")
+  isActive     Boolean      @default(true) @map("is_active")
+  lastSyncedAt DateTime?    @map("last_synced_at")
+  partner      EcoPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
   @@unique([partnerId, externalId])
   @@map("partner_locations")
@@ -257,20 +299,20 @@ model Airport {
 // ─────────────────────────────────────────────
 
 model Coupon {
-  id              String       @id @default(cuid())
-  partnerId       String       @map("partner_id")
-  title           String
-  description     String
-  discountType    DiscountType @map("discount_type")
-  discountValue   Decimal      @map("discount_value") @db.Decimal(10, 2)
-  pointsCost      Int          @default(0) @map("points_cost")
-  conditionType   ConditionType? @map("condition_type")
-  conditionValue  String?      @map("condition_value")  // JSON-serialised value
-  totalStock      Int?         @map("total_stock")
-  issuedCount     Int          @default(0) @map("issued_count")
-  expiresAt       DateTime?    @map("expires_at")
-  isActive        Boolean      @default(true) @map("is_active")
-  createdAt       DateTime     @default(now()) @map("created_at")
+  id             String         @id @default(cuid())
+  partnerId      String         @map("partner_id")
+  title          String
+  description    String
+  discountType   DiscountType   @map("discount_type")
+  discountValue  Decimal        @map("discount_value") @db.Decimal(10, 2)
+  pointsCost     Int            @default(0) @map("points_cost")
+  conditionType  ConditionType? @map("condition_type")
+  conditionValue String?        @map("condition_value") // JSON-serialised value
+  totalStock     Int?           @map("total_stock")
+  issuedCount    Int            @default(0) @map("issued_count")
+  expiresAt      DateTime?      @map("expires_at")
+  isActive       Boolean        @default(true) @map("is_active")
+  createdAt      DateTime       @default(now()) @map("created_at")
 
   partner     EcoPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   userCoupons UserCoupon[]
@@ -283,13 +325,13 @@ model Coupon {
 // ─────────────────────────────────────────────
 
 model UserCoupon {
-  id          String    @id @default(cuid())
-  profileId   String    @map("profile_id")
-  couponId    String    @map("coupon_id")
-  code        String    @unique
-  redeemedAt  DateTime? @map("redeemed_at")
-  expiresAt   DateTime? @map("expires_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(cuid())
+  profileId  String    @map("profile_id")
+  couponId   String    @map("coupon_id")
+  code       String    @unique
+  redeemedAt DateTime? @map("redeemed_at")
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   coupon  Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
@@ -303,15 +345,15 @@ model UserCoupon {
 // ─────────────────────────────────────────────
 
 model Badge {
-  id              String        @id @default(cuid())
-  name            String        @unique
-  description     String
-  iconUrl         String?       @map("icon_url")
-  conditionType   ConditionType @map("condition_type")
-  conditionValue  String        @map("condition_value") // JSON
-  pointsReward    Int           @default(0) @map("points_reward")
-  isActive        Boolean       @default(true) @map("is_active")
-  createdAt       DateTime      @default(now()) @map("created_at")
+  id             String        @id @default(cuid())
+  name           String        @unique
+  description    String
+  iconUrl        String?       @map("icon_url")
+  conditionType  ConditionType @map("condition_type")
+  conditionValue String        @map("condition_value") // JSON
+  pointsReward   Int           @default(0) @map("points_reward")
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
 
   userBadges UserBadge[]
 
@@ -340,15 +382,15 @@ model UserBadge {
 // ─────────────────────────────────────────────
 
 model PointsLedger {
-  id          String           @id @default(cuid())
-  profileId   String           @map("profile_id")
-  type        PointsLedgerType
-  earnType    EarnType?        @map("earn_type")
-  delta       Int              // positive = earn, negative = redeem/expire
-  balanceAfter Int             @map("balance_after")
-  description String
-  refId       String?          @map("ref_id")  // tripId, couponId, badgeId, etc.
-  createdAt   DateTime         @default(now()) @map("created_at")
+  id           String           @id @default(cuid())
+  profileId    String           @map("profile_id")
+  type         PointsLedgerType
+  earnType     EarnType?        @map("earn_type")
+  delta        Int // positive = earn, negative = redeem/expire
+  balanceAfter Int              @map("balance_after")
+  description  String
+  refId        String?          @map("ref_id") // tripId, couponId, badgeId, etc.
+  createdAt    DateTime         @default(now()) @map("created_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
@@ -367,7 +409,7 @@ model Challenge {
   description  String
   type         ChallengeType
   targetValue  Float         @map("target_value")
-  modeFilter   TripMode?     @map("mode_filter")  // only used by CYCLING_KM
+  modeFilter   TripMode?     @map("mode_filter") // only used by CYCLING_KM
   rewardPoints Int           @map("reward_points")
   startsAt     DateTime      @default(now()) @map("starts_at")
   endsAt       DateTime?     @map("ends_at")
@@ -406,13 +448,13 @@ model UserChallenge {
 // ─────────────────────────────────────────────
 
 model PartnerAnalytics {
-  id          String   @id @default(cuid())
-  partnerId   String   @map("partner_id")
-  date        DateTime @db.Date
-  pinViews    Int      @default(0) @map("pin_views")
-  pinClicks   Int      @default(0) @map("pin_clicks")
-  couponsIssued Int    @default(0) @map("coupons_issued")
-  couponsRedeemed Int  @default(0) @map("coupons_redeemed")
+  id              String   @id @default(cuid())
+  partnerId       String   @map("partner_id")
+  date            DateTime @db.Date
+  pinViews        Int      @default(0) @map("pin_views")
+  pinClicks       Int      @default(0) @map("pin_clicks")
+  couponsIssued   Int      @default(0) @map("coupons_issued")
+  couponsRedeemed Int      @default(0) @map("coupons_redeemed")
 
   partner EcoPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
@@ -430,7 +472,7 @@ model Notification {
   title     String
   body      String
   isRead    Boolean  @default(false) @map("is_read")
-  refType   String?  @map("ref_type")  // badge | coupon | trip | points
+  refType   String?  @map("ref_type") // badge | coupon | trip | points
   refId     String?  @map("ref_id")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -441,20 +483,121 @@ model Notification {
 }
 
 // ─────────────────────────────────────────────
-// Referral
+// MapPin
 // ─────────────────────────────────────────────
 
-model Referral {
-  id         String   @id @default(cuid())
-  referrerId String   @map("referrer_id")
-  referreeId String   @unique @map("referree_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+model MapPin {
+  id          String      @id @default(cuid())
+  profileId   String      @map("profile_id")
+  category    PinCategory
+  title       String      @db.VarChar(120)
+  description String?     @db.VarChar(400)
+  latitude    Decimal     @db.Decimal(10, 7)
+  longitude   Decimal     @db.Decimal(10, 7)
+  expiresAt   DateTime    @map("expires_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
 
-  referrer Profile @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
-  referree Profile @relation("ReferralsReceived", fields: [referreeId], references: [id], onDelete: Cascade)
+  profile  Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  upvotes  PinUpvote[]
+  comments PinComment[]
+  forums   Forum[]
 
-  @@index([referrerId])
-  @@map("referrals")
+  @@index([expiresAt])
+  @@index([latitude, longitude])
+  @@map("map_pins")
+}
+
+// ─────────────────────────────────────────────
+// PinComment
+// ─────────────────────────────────────────────
+
+model PinComment {
+  id        String   @id @default(cuid())
+  pinId     String   @map("pin_id")
+  profileId String   @map("profile_id")
+  text      String   @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pin     MapPin  @relation(fields: [pinId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([pinId, createdAt])
+  @@map("pin_comments")
+}
+
+// ─────────────────────────────────────────────
+// PinUpvote
+// ─────────────────────────────────────────────
+
+model PinUpvote {
+  pinId     String @map("pin_id")
+  profileId String @map("profile_id")
+
+  pin     MapPin  @relation(fields: [pinId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([pinId, profileId])
+  @@map("pin_upvotes")
+}
+
+// ─────────────────────────────────────────────
+// Forum
+// ─────────────────────────────────────────────
+
+model Forum {
+  id           String   @id @default(cuid())
+  profileId    String   @map("profile_id")
+  title        String
+  body         String?
+  imageUrl     String?  @map("image_url")
+  sourcePinId  String?  @map("source_pin_id")
+  likeCount    Int      @default(0) @map("like_count")
+  commentCount Int      @default(0) @map("comment_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  profile   Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  sourcePin MapPin?        @relation(fields: [sourcePinId], references: [id], onDelete: SetNull)
+  likes     ForumLike[]
+  comments  ForumComment[]
+
+  @@index([createdAt])
+  @@index([likeCount])
+  @@index([commentCount])
+  @@map("forums")
+}
+
+// ─────────────────────────────────────────────
+// ForumLike
+// ─────────────────────────────────────────────
+
+model ForumLike {
+  forumId   String @map("forum_id")
+  profileId String @map("profile_id")
+
+  forum   Forum   @relation(fields: [forumId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([forumId, profileId])
+  @@map("forum_likes")
+}
+
+// ─────────────────────────────────────────────
+// ForumComment
+// ─────────────────────────────────────────────
+
+model ForumComment {
+  id        String   @id @default(cuid())
+  forumId   String   @map("forum_id")
+  profileId String   @map("profile_id")
+  text      String   @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  forum   Forum   @relation(fields: [forumId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([forumId, createdAt])
+  @@map("forum_comments")
 }
 
 // ─────────────────────────────────────────────
@@ -462,22 +605,22 @@ model Referral {
 // ─────────────────────────────────────────────
 
 model SavedRoute {
-  id               String   @id @default(cuid())
-  profileId        String   @map("profile_id")
+  id        String @id @default(cuid())
+  profileId String @map("profile_id")
 
   // Human-readable addresses
-  originAddress    String   @map("origin_address")
-  destAddress      String   @map("dest_address")
+  originAddress String @map("origin_address")
+  destAddress   String @map("dest_address")
 
   // Coordinates (rounded to 5 decimal places on insert for dedup)
-  originLat        Float    @map("origin_lat")
-  originLng        Float    @map("origin_lng")
-  destLat          Float    @map("dest_lat")
-  destLng          Float    @map("dest_lng")
+  originLat Float @map("origin_lat")
+  originLng Float @map("origin_lng")
+  destLat   Float @map("dest_lat")
+  destLng   Float @map("dest_lng")
 
   // Route summary (displayed on saved-routes cards)
-  mode             String                     // WALKING | BICYCLING | TRANSIT | MIXED | PLANE | TRAIN
-  subType          String?  @map("sub_type")  // CYCLING_TRANSIT etc.
+  mode             String
+  subType          String?  @map("sub_type")
   distanceKm       Float    @map("distance_km")
   durationMin      Int      @map("duration_min")
   co2Grams         Int      @map("co2_grams")
@@ -487,22 +630,131 @@ model SavedRoute {
   greenPoints      Int      @map("green_points")
   finalScore       Int      @default(0) @map("final_score")
 
-  // Mood context when route was saved (optional)
   mood             String?
   moodReason       String?  @map("mood_reason")
 
-  // Full EcoRoute snapshot — contains carbonBreakdown steps + geometry polyline
-  // required to reconstruct navigation without re-fetching Google Maps
   routeData        Json     @map("route_data")
 
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
-  // One saved entry per user+origin+dest+mode combination.
-  // Re-saving updates the route data rather than creating a duplicate.
   @@unique([profileId, originLat, originLng, destLat, destLng, mode])
   @@index([profileId, createdAt(sort: Desc)])
   @@map("saved_routes")
+}
+
+// ─────────────────────────────────────────────
+// PartnerProfile
+// ─────────────────────────────────────────────
+
+model PartnerProfile {
+  id            String        @id @default(cuid())
+  profileId     String        @unique @map("profile_id")
+  businessName  String        @map("business_name")
+  businessEmail String?       @map("business_email")
+  phone         String?
+  location      String?
+  logoUrl       String?       @map("logo_url")
+  status        PartnerStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  profile  Profile              @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  listings MarketplaceListing[]
+  orders   MarketplaceOrder[]
+
+  @@map("partner_profiles")
+}
+
+// ─────────────────────────────────────────────
+// MarketplaceCategory
+// ─────────────────────────────────────────────
+
+model MarketplaceCategory {
+  id        String @id @default(cuid())
+  slug      String @unique
+  label     String
+  glyph     String @default("🌿")
+  sortOrder Int    @default(0) @map("sort_order")
+
+  listings MarketplaceListing[]
+
+  @@map("marketplace_categories")
+}
+
+// ─────────────────────────────────────────────
+// MarketplaceListing
+// ─────────────────────────────────────────────
+
+model MarketplaceListing {
+  id          String             @id @default(cuid())
+  partnerId   String             @map("partner_id")
+  categoryId  String             @map("category_id")
+  title       String
+  description String?
+  whyEco      String?            @map("why_eco")
+  type        ListingType        @default(PRODUCT)
+  payment     ListingPaymentType @default(FLEXIBLE)
+  moneyPrice  Decimal?           @map("money_price") @db.Decimal(10, 2)
+  pointsPrice Int?               @map("points_price")
+  stock       Int?
+  location    String?
+  status      ListingStatus      @default(DRAFT)
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  partner  PartnerProfile      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  category MarketplaceCategory @relation(fields: [categoryId], references: [id])
+  images   MarketplaceImage[]
+  orders   MarketplaceOrder[]
+
+  @@index([partnerId])
+  @@index([categoryId, status])
+  @@map("marketplace_listings")
+}
+
+// ─────────────────────────────────────────────
+// MarketplaceImage
+// ─────────────────────────────────────────────
+
+model MarketplaceImage {
+  id        String   @id @default(cuid())
+  listingId String   @map("listing_id")
+  url       String
+  isCover   Boolean  @default(false) @map("is_cover")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("marketplace_images")
+}
+
+// ─────────────────────────────────────────────
+// MarketplaceOrder
+// ─────────────────────────────────────────────
+
+model MarketplaceOrder {
+  id                 String                 @id @default(cuid())
+  profileId          String                 @map("profile_id")
+  partnerId          String                 @map("partner_id")
+  listingId          String                 @map("listing_id")
+  pointsUsed         Int                    @default(0) @map("points_used")
+  moneyPaidSimulated Decimal                @default(0) @map("money_paid_simulated") @db.Decimal(10, 2)
+  status             MarketplaceOrderStatus @default(PENDING)
+  note               String?
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  profile Profile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  partner PartnerProfile     @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([partnerId])
+  @@index([listingId])
+  @@map("marketplace_orders")
 }

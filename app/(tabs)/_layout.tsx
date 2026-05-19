@@ -1,6 +1,6 @@
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -25,7 +25,7 @@ export default function TabLayout() {
           height: 68,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '500',
         },
       }}
@@ -45,6 +45,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="rewards"
         options={{ title: 'Rewards', tabBarIcon: tabIcon('gift', 'gift-outline') }}
+      />
+      <Tabs.Screen
+        name="forum"
+        options={{ title: 'Forum', tabBarIcon: tabIcon('chatbubbles', 'chatbubbles-outline') }}
+      />
+      <Tabs.Screen
+        name="marketplace"
+        options={{ title: 'Shop', tabBarIcon: tabIcon('storefront', 'storefront-outline') }}
       />
       <Tabs.Screen
         name="leaderboard"

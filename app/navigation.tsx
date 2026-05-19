@@ -1,22 +1,6 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Animated,
-  Alert,
-} from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Shadow } from '@/constants/theme';
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
+import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
-import { routeStore } from '@/lib/routeStore';
-import { tripResultStore } from '@/lib/tripResultStore';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
   flattenRouteSegments,
@@ -25,8 +9,24 @@ import {
   routeModeIcon,
   routeModeStyle,
 } from '@/lib/routeMap';
+import { routeStore } from '@/lib/routeStore';
+import { tripResultStore } from '@/lib/tripResultStore';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 function modeLabel(mode: string): string {
   switch (mode) {
@@ -181,6 +181,14 @@ export default function NavigationScreen() {
         text: 'Complete Trip',
         style: 'default',
         onPress: async () => {
+          // Fire-and-forget — save polyline for heatmap, never block trip completion
+          if (ecoRoute?.geometry) {
+            api.post('/api/heatmap/save', {
+              encoded_polyline: ecoRoute.geometry,
+              co2_saved_kg: co2SavedG / 1000,
+              distance_km: distanceKm,
+            }).catch(() => {});
+          }
           setCompleting(true);
           try {
             if (state) {
@@ -255,7 +263,6 @@ export default function NavigationScreen() {
       <MapView
         ref={mapRef}
         style={styles.mapArea}
-        provider={PROVIDER_GOOGLE}
         initialRegion={initialRegion}
         showsUserLocation
         showsMyLocationButton={false}
