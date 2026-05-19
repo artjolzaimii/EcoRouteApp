@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { generateRoutes, generateEcoRoutes, detectJourneyType, haversineDistance, VALID_MOODS } from "../services/routing.service";
+import { prisma } from "../config/prisma";
+import type { LearnedWeights } from "../services/weightLearning.service";
 
 const router = Router();
 
@@ -51,9 +53,16 @@ router.post(
       const newParse = EcoRouteRequestSchema.safeParse(body);
       if (newParse.success) {
         const { origin, destination, mood, departureTime } = newParse.data;
+
+        const profile = await prisma.profile.findUnique({
+          where: { id: req.user!.profileId },
+          select: { learnedWeights: true },
+        });
+        const learnedWeights = profile?.learnedWeights as LearnedWeights | undefined;
+
         let result;
         try {
-          result = await generateEcoRoutes({ origin, destination, mood, departureTime });
+          result = await generateEcoRoutes({ origin, destination, mood, departureTime, learnedWeights });
         } catch (googleErr: any) {
           if (googleErr?.message?.includes("GOOGLE_MAPS_API_KEY")) {
             res.status(503).json({ success: false, error: "Routing service unavailable — Google API key not configured" });

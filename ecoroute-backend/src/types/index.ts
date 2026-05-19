@@ -67,8 +67,22 @@ export interface GoogleStep {
   start_location?: LatLng;
   end_location?: LatLng;
   transit_details?: {
-    line: { vehicle: { type: string } };
+    line: {
+      short_name?: string;
+      name?: string;
+      vehicle: { type: string };
+    };
+    headsign?: string;
   };
+  // Nested turn-by-turn sub-steps (Google returns these for walking legs within transit routes)
+  steps?: Array<{
+    html_instructions: string;
+    distance: { value: number };
+    duration?: { value: number };
+    polyline?: { points: string };
+    start_location?: { lat: number; lng: number };
+    end_location?: { lat: number; lng: number };
+  }>;
 }
 
 export interface GoogleDirectionsRoute {

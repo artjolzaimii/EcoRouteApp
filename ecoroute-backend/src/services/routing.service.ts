@@ -1,12 +1,14 @@
 import { randomUUID } from "crypto";
 import { TripMode } from "@prisma/client";
-import { fetchDirections, parseSteps, parseDistanceDuration } from "./google.service";
+import { fetchDirections, fetchTransitAlternatives, parseSteps, parseDistanceDuration } from "./google.service";
 import { calculateCarbon, scoreGoogleRoute, calculateGreenPoints, EMISSION_FACTORS } from "./carbon.service";
+import { getMultipliers, type ModeMultipliers } from "./settingsCache";
 import { findNearbyPartners, recordPartnerView, getEcoBusinessPartnersAlongRoute, getMobilityStopsForRoute } from "./partners.service";
 import { cacheGet, cacheSet, routeCacheKey } from "./cache.service";
 import { prisma } from "../config/prisma";
 import { haversineDistance, decodePolylineToCoords, clamp } from "../utils/helpers";
-import { RouteOption } from "../types";
+import { RouteOption, GoogleDirectionsRoute } from "../types";
+import type { LearnedWeights } from "./weightLearning.service";
 
 // ─────────────────────────────────────────────
 // Re-export haversineDistance so legacy code works
@@ -32,6 +34,7 @@ export interface ScoredCandidate {
   savedVsCar: number;
   carbonScore: number;
   greenPoints: number;
+  transitLineName?: string;
   carbonBreakdown: Array<{
     mode: string;
     distanceKm: number;
@@ -40,6 +43,7 @@ export interface ScoredCandidate {
     polyline?: string;
     startLocation?: { lat: number; lng: number };
     endLocation?: { lat: number; lng: number };
+    transitLine?: string;
   }>;
   transferCount?: number;
   requiresBooking?: boolean;
@@ -70,6 +74,7 @@ export interface RankedRoute extends ScoredCandidate {
   finalScore: number;
   recommended: boolean;
   recommendationReason?: string;
+  personalizedLabel?: string;
   moodReason?: string;
 }
 
@@ -194,9 +199,29 @@ function moodWeights(mood?: RouteMood): {
       // Cost dominates; time secondary; carbon mild incentive
       return { carbon: 0.10, time: 0.15, comfort: 0.15, cost: 0.55, effort: 0.05 };
     default:
-      // Eco-first default
-      return { carbon: 0.55, time: 0.25, comfort: 0.15, cost: 0.00, effort: 0.05 };
+      // Eco-first default — time and carbon weighted equally so a 60min time gap
+      // cannot be overridden by a zero-emission bonus alone.
+      return { carbon: 0.40, time: 0.40, comfort: 0.15, cost: 0.00, effort: 0.05 };
   }
+}
+
+type MoodWeightVector = ReturnType<typeof moodWeights>;
+
+/**
+ * Blends mood defaults with the user's learned weights.
+ * alpha grows linearly from 0 → 0.40 as tripCount grows from 0 → 20,
+ * so explicit mood selection always dominates over learned preferences.
+ */
+function blendWeights(moodW: MoodWeightVector, learned: LearnedWeights): MoodWeightVector {
+  const alpha = Math.min(learned.tripCount / 20, 0.40);
+  const dims = ["carbon", "time", "comfort", "cost", "effort"] as const;
+  const blended = { ...moodW };
+  for (const dim of dims) {
+    blended[dim] = (1 - alpha) * moodW[dim] + alpha * (learned as unknown as MoodWeightVector)[dim];
+  }
+  const total = dims.reduce((s, d) => s + blended[d], 0);
+  for (const dim of dims) blended[dim] = blended[dim] / total;
+  return blended;
 }
 
 function moodRouteReason(mood: RouteMood, candidate: ScoredCandidate): string {
@@ -218,10 +243,17 @@ function moodRouteReason(mood: RouteMood, candidate: ScoredCandidate): string {
 // applyWeightedRanking
 // ─────────────────────────────────────────────
 
-export const applyWeightedRanking = (candidates: ScoredCandidate[], mood?: RouteMood): RankedRoute[] => {
+export const applyWeightedRanking = (
+  candidates: ScoredCandidate[],
+  mood?: RouteMood,
+  learnedWeights?: LearnedWeights,
+): RankedRoute[] => {
   if (candidates.length === 0) return [];
 
-  const weights = moodWeights(mood);
+  const base = moodWeights(mood);
+  // Learned weights only apply when no explicit mood is selected —
+  // an explicit mood reflects the user's in-the-moment intent and takes full priority.
+  const weights = (!mood && learnedWeights) ? blendWeights(base, learnedWeights) : base;
   const fastestDuration = Math.min(...candidates.map((c) => c.durationMin));
 
   // Pre-compute raw costs then normalise to a 0–100 score (100 = free/cheapest).
@@ -340,6 +372,11 @@ export const applyWeightedRanking = (candidates: ScoredCandidate[], mood?: Route
       ranked[0].recommendationReason = `${savingPercent}% less CO2 than driving — earns ${top.greenPoints} Green Points`;
     }
 
+    if (!mood && learnedWeights && learnedWeights.tripCount >= 3) {
+      const n = learnedWeights.tripCount;
+      ranked[0].personalizedLabel = `on past ${n} trip${n === 1 ? "" : "s"}`;
+    }
+
     if (mood) {
       ranked[0].moodReason = moodRouteReason(mood, top);
     }
@@ -400,7 +437,8 @@ export const buildCyclingPlusTransit = async (
 async function buildPartnerAssistedCandidates(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
-  totalDistanceKm: number
+  totalDistanceKm: number,
+  multipliers: ModeMultipliers,
 ): Promise<ScoredCandidate[]> {
   const stops = await getMobilityStopsForRoute(origin, destination, 30);
   if (stops.length === 0) return [];
@@ -440,7 +478,7 @@ async function buildPartnerAssistedCandidates(
       carEquivalentCO2: carBaselineCO2,
       savedVsCar,
       carbonScore,
-      greenPoints: calculateGreenPoints(savedVsCar, "CYCLING_TRANSIT"),
+      greenPoints: calculateGreenPoints(savedVsCar, "CYCLING_TRANSIT", multipliers),
       carbonBreakdown: [
         {
           mode: "TRANSIT",
@@ -483,8 +521,9 @@ export async function generateEcoRoutes(params: {
   destination: { lat: number; lng: number; name?: string };
   mood?: RouteMood;
   departureTime?: string;
+  learnedWeights?: LearnedWeights;
 }): Promise<EcoRoutesResponseData> {
-  const { origin, destination, mood, departureTime } = params;
+  const { origin, destination, mood, departureTime, learnedWeights } = params;
 
   // [PERF] Master timer for generateEcoRoutes
   const _perfT0 = Date.now();
@@ -501,6 +540,8 @@ export async function generateEcoRoutes(params: {
     return cached;
   }
   console.log(`[Routing] Cache MISS for ${cacheKey} — building routes fresh`);
+
+  const multipliers = await getMultipliers();
 
   const distanceKm = Math.round(haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) * 10) / 10;
   const journeyType = detectJourneyType(distanceKm);
@@ -528,13 +569,23 @@ export async function generateEcoRoutes(params: {
   }
   console.log(`[Routing] Modes to fetch: [${googleModes.join(", ")}]`);
 
-  const googleFetches = googleModes.map((mode) =>
+  // Non-transit modes (walking, cycling) — single best route each
+  const nonTransitModes = googleModes.filter(m => m !== "transit");
+  const googleFetches = nonTransitModes.map((mode) =>
     fetchDirections({
       originLat: origin.lat, originLng: origin.lng,
       destLat: destination.lat, destLng: destination.lng,
       mode,
     }).then((route) => ({ mode, route })).catch(() => ({ mode, route: null as null }))
   );
+
+  // Transit — fetch up to 3 alternatives, sorted by duration (fastest first)
+  const transitFetch: Promise<GoogleDirectionsRoute[]> = googleModes.includes("transit")
+    ? fetchTransitAlternatives({
+        originLat: origin.lat, originLng: origin.lng,
+        destLat: destination.lat, destLng: destination.lng,
+      }).catch(() => [])
+    : Promise.resolve([]);
 
   // Cycling + Transit combo only makes sense for URBAN journeys
   const cyclingTransitPromise =
@@ -550,8 +601,9 @@ export async function generateEcoRoutes(params: {
   const _perfTFetch0 = Date.now();
   console.log(`[PERF][ROUTES] generateEcoRoutes: external fetch start (google=${googleModes.length} trains=${needsTrains} flights=${needsFlights})`);
 
-  const [googleResults, cyclingTransitResult, rawTrainOptions, rawFlightOption] = await Promise.all([
+  const [googleResults, transitRoutes, cyclingTransitResult, rawTrainOptions, rawFlightOption] = await Promise.all([
     Promise.all(googleFetches),
+    transitFetch,
     cyclingTransitPromise,
     needsTrains
       ? import("./trains.service")
@@ -580,24 +632,36 @@ export async function generateEcoRoutes(params: {
   let googleTransitGeometry = "";
   let googleTransitBreakdown: ScoredCandidate["carbonBreakdown"] = [];
 
+  // Process walking / cycling results
   for (const { mode, route } of googleResults) {
     if (!route) continue;
     const scored = scoreGoogleRoute({ routes: [route] }, mode.toUpperCase());
     if (scored.distanceKm === 0) continue;
 
-    const modeKey = mode === "walking" ? "WALKING"
-      : mode === "bicycling" ? "BICYCLING"
-      : "TRANSIT";
-
+    const modeKey = mode === "walking" ? "WALKING" : "BICYCLING";
     candidates.push({
       mode: modeKey,
       ...scored,
-      greenPoints: calculateGreenPoints(scored.savedVsCar, modeKey),
+      greenPoints: calculateGreenPoints(scored.savedVsCar, modeKey, multipliers),
       geometry: route.overview_polyline?.points ?? "",
       dataSource: "GOOGLE_MAPS",
     });
+  }
 
-    if (mode === "transit") {
+  // Process up to 3 transit alternatives as separate candidates
+  for (const [idx, route] of transitRoutes.entries()) {
+    const scored = scoreGoogleRoute({ routes: [route] }, "TRANSIT");
+    if (scored.distanceKm === 0) continue;
+    const transitLineName = scored.carbonBreakdown.find(leg => leg.transitLine)?.transitLine;
+    candidates.push({
+      mode: "TRANSIT",
+      ...scored,
+      greenPoints: calculateGreenPoints(scored.savedVsCar, "TRANSIT", multipliers),
+      geometry: route.overview_polyline?.points ?? "",
+      dataSource: "GOOGLE_MAPS",
+      transitLineName,
+    });
+    if (idx === 0) {
       googleTransitGeometry = route.overview_polyline?.points ?? "";
       googleTransitBreakdown = scored.carbonBreakdown;
     }
@@ -610,7 +674,7 @@ export async function generateEcoRoutes(params: {
         mode: "MIXED",
         subType: "CYCLING_TRANSIT",
         ...scored,
-        greenPoints: calculateGreenPoints(scored.savedVsCar, "MIXED"),
+        greenPoints: calculateGreenPoints(scored.savedVsCar, "MIXED", multipliers),
         dataSource: "GOOGLE_MAPS",
       });
     }
@@ -643,7 +707,7 @@ export async function generateEcoRoutes(params: {
       carEquivalentCO2: carBaselineCO2,
       savedVsCar: carBaselineCO2,
       carbonScore: 100,
-      greenPoints: calculateGreenPoints(carBaselineCO2, "WALKING"),
+      greenPoints: calculateGreenPoints(carBaselineCO2, "WALKING", multipliers),
       carbonBreakdown: [{
         mode: "WALKING",
         distanceKm,
@@ -675,7 +739,7 @@ export async function generateEcoRoutes(params: {
       carEquivalentCO2: cyclingCarCO2,
       savedVsCar: cyclingCarCO2,
       carbonScore: 100,
-      greenPoints: calculateGreenPoints(cyclingCarCO2, "BICYCLING"),
+      greenPoints: calculateGreenPoints(cyclingCarCO2, "BICYCLING", multipliers),
       carbonBreakdown: [{
         mode: "BICYCLING",
         distanceKm: cyclingDistanceKm,
@@ -718,7 +782,7 @@ export async function generateEcoRoutes(params: {
   const partnerAssistRelevant = journeyType === "REGIONAL" || journeyType === "INTERCITY" || journeyType === "INTERNATIONAL";
   try {
     const partnerCandidates = partnerAssistRelevant
-      ? await buildPartnerAssistedCandidates(origin, destination, distanceKm)
+      ? await buildPartnerAssistedCandidates(origin, destination, distanceKm, multipliers)
       : [];
     if (partnerCandidates.length > 0) {
       console.log(`[Routing] Added ${partnerCandidates.length} partner-assisted candidate(s):`,
@@ -732,7 +796,7 @@ export async function generateEcoRoutes(params: {
     console.error('[Routing] buildPartnerAssistedCandidates failed:', e);
   }
 
-  const rankedRoutes = applyWeightedRanking(candidates, mood);
+  const rankedRoutes = applyWeightedRanking(candidates, mood, learnedWeights);
   console.log(
     `[Routing] Final ranked (${rankedRoutes.length}): ` +
     rankedRoutes.map((r, i) =>
@@ -925,3 +989,5 @@ export async function generateRoutes(req: RouteRequest): Promise<RouteOption[]> 
   await cacheSet(cacheKey, routes, 300);
   return routes;
 }
+
+export { blendWeights }; // exported for testing only

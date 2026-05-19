@@ -2,6 +2,7 @@ import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
+import { haversineDistance } from '@/lib/geoUtils';
 import {
   flattenRouteSegments,
   getRouteMapSegments,
@@ -15,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -27,6 +28,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MapView, { Marker, Polyline } from 'react-native-maps';
+
+const STEP_ADVANCE_THRESHOLD_M = 30;
 
 function modeLabel(mode: string): string {
   switch (mode) {
@@ -49,7 +52,6 @@ function modeNavIcon(mode: string): React.ComponentProps<typeof Ionicons>['name'
   }
 }
 
-/** Map EcoRoute/mixed mode strings to valid Prisma TripMode enum values. */
 function toTripMode(mode: string): string {
   switch (mode.toUpperCase()) {
     case 'BICYCLING': return 'CYCLING';
@@ -60,16 +62,33 @@ function toTripMode(mode: string): string {
   }
 }
 
+function formatDistance(metres: number): string {
+  return metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+
 export default function NavigationScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const [completing, setCompleting] = useState(false);
   const [co2SheetVisible, setCo2SheetVisible] = useState(false);
 
+  // ── Step tracking ──────────────────────────────────────
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [distanceToNext, setDistanceToNext] = useState<number | null>(null);
+  const [cameraLocked, setCameraLocked] = useState(true);
+
+  // Refs mirror state so the location callback closure never goes stale
+  const stepIndexRef = useRef(0);
+  const cameraLockedRef = useRef(true);
+  const locationSubRef = useRef<{ remove: () => void } | null>(null);
+
+  useEffect(() => { stepIndexRef.current = currentStepIndex; }, [currentStepIndex]);
+  useEffect(() => { cameraLockedRef.current = cameraLocked; }, [cameraLocked]);
+
+  // ── Route data ─────────────────────────────────────────
   const state = routeStore.get();
   const selectedIndex = state?.selectedIndex ?? 0;
 
-  // Support both new EcoRoute format and legacy RouteOption
   const ecoRoute = state?.ecoResponse?.routes?.[selectedIndex];
   const legacyRoute = !state?.ecoResponse ? state?.routes?.[selectedIndex] : undefined;
 
@@ -116,22 +135,17 @@ export default function NavigationScreen() {
     latitudeDelta: Math.abs(originCoord.latitude - destCoord.latitude) * 2.5 + 0.01,
     longitudeDelta: Math.abs(originCoord.longitude - destCoord.longitude) * 2.5 + 0.01,
   };
+
   const routeSegments = useMemo(
     () => getRouteMapSegments(ecoRoute ?? legacyRoute, routeMode, originCoord, destCoord),
-    [
-      ecoRoute,
-      legacyRoute,
-      routeMode,
-      originCoord,
-      destCoord,
-    ],
+    [ecoRoute, legacyRoute, routeMode, originCoord, destCoord],
   );
   const routeCoords = useMemo(() => flattenRouteSegments(routeSegments), [routeSegments]);
   const transitionMarkers = useMemo(() => getTransitionMarkers(routeSegments), [routeSegments]);
 
   const co2SavedKg = (co2SavedG / 1000).toFixed(2);
 
-  // Animations
+  // ── Animations ─────────────────────────────────────────
   const instructionAnim = useRef(new Animated.Value(-120)).current;
   const instructionOpacity = useRef(new Animated.Value(0)).current;
   const modeAnim = useRef(new Animated.Value(-120)).current;
@@ -140,6 +154,7 @@ export default function NavigationScreen() {
   const panelOpacity = useRef(new Animated.Value(0)).current;
   const leafScale = useRef(new Animated.Value(1)).current;
 
+  // Entry animations
   useEffect(() => {
     Animated.stagger(100, [
       Animated.parallel([
@@ -164,6 +179,7 @@ export default function NavigationScreen() {
     ).start();
   }, []);
 
+  // Fit map to route on load
   useEffect(() => {
     if (routeCoords.length < 2 || !mapRef.current) return;
     mapRef.current.fitToCoordinates(routeCoords, {
@@ -172,8 +188,89 @@ export default function NavigationScreen() {
     });
   }, [routeCoords]);
 
-  const firstStep = steps[0];
+  // ── Instruction card step-change animation ─────────────
+  const triggerInstructionAnimation = useCallback(() => {
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(instructionAnim, { toValue: -40, duration: 200, useNativeDriver: true }),
+        Animated.timing(instructionOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(instructionAnim, { toValue: 0, damping: 18, stiffness: 200, useNativeDriver: true }),
+        Animated.timing(instructionOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]),
+    ]).start();
+  }, [instructionAnim, instructionOpacity]);
 
+  // ── GPS watch ──────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const Location = require('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+
+        const sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 2000,
+            distanceInterval: 5,
+          },
+          (loc: { coords: { latitude: number; longitude: number } }) => {
+            handleLocationUpdate(loc.coords.latitude, loc.coords.longitude);
+          },
+        );
+        if (!cancelled) {
+          locationSubRef.current = sub;
+        } else {
+          sub.remove();
+        }
+      } catch {
+        // expo-location unavailable or permissions denied — graceful no-op
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      locationSubRef.current?.remove();
+      locationSubRef.current = null;
+    };
+  }, []);
+
+  function handleLocationUpdate(latitude: number, longitude: number) {
+    // Follow camera
+    if (cameraLockedRef.current && mapRef.current) {
+      mapRef.current.animateCamera(
+        { center: { latitude, longitude }, zoom: 17 },
+        { duration: 600 },
+      );
+    }
+
+    // Step advancement
+    const step = steps[stepIndexRef.current];
+    if (!step?.endLocation) return;
+
+    const dist = haversineDistance(
+      latitude, longitude,
+      step.endLocation.lat, step.endLocation.lng,
+    );
+    setDistanceToNext(Math.round(dist));
+
+    if (dist < STEP_ADVANCE_THRESHOLD_M && stepIndexRef.current < steps.length - 1) {
+      const next = stepIndexRef.current + 1;
+      stepIndexRef.current = next;
+      setCurrentStepIndex(next);
+      setDistanceToNext(null);
+      triggerInstructionAnimation();
+    }
+  }
+
+  // ── Current step ───────────────────────────────────────
+  const currentStep = steps[currentStepIndex] ?? null;
+
+  // ── Trip completion ────────────────────────────────────
   const handleEndRoute = async () => {
     Alert.alert('End Route?', 'Do you want to complete this trip and save your impact?', [
       { text: 'Cancel', style: 'cancel' },
@@ -181,7 +278,6 @@ export default function NavigationScreen() {
         text: 'Complete Trip',
         style: 'default',
         onPress: async () => {
-          // Fire-and-forget — save polyline for heatmap, never block trip completion
           if (ecoRoute?.geometry) {
             api.post('/api/heatmap/save', {
               encoded_polyline: ecoRoute.geometry,
@@ -211,8 +307,6 @@ export default function NavigationScreen() {
                 destAddress: state.destAddress,
                 distanceKm,
                 durationMinutes: durationMin,
-                // Pass pre-computed CO2 so the backend uses the correct values
-                // (avoids wrong re-calculation when PLANE/TRAIN mapped to TRANSIT)
                 co2SavedGrams: co2SavedG,
                 co2EmittedGrams: co2EmittedG,
                 greenPoints,
@@ -233,7 +327,6 @@ export default function NavigationScreen() {
               });
             }
           } catch {
-            // Even if API fails, store local data so the screen still shows something
             tripResultStore.set({
               co2SavedGrams: co2SavedG,
               co2EmittedGrams: co2EmittedG,
@@ -270,6 +363,9 @@ export default function NavigationScreen() {
         zoomEnabled
         pitchEnabled
         rotateEnabled
+        onPanDrag={() => {
+          if (cameraLockedRef.current) setCameraLocked(false);
+        }}
       >
         {routeSegments.map((segment, index) => {
           const style = routeModeStyle(segment.mode);
@@ -315,11 +411,14 @@ export default function NavigationScreen() {
           <Ionicons name="arrow-up-outline" size={36} color={Colors.white} />
         </View>
         <View style={{ flex: 1 }}>
-          {firstStep ? (
+          {currentStep ? (
             <>
-              <Text style={styles.instructionText} numberOfLines={2}>{firstStep.instruction}</Text>
+              <Text style={styles.instructionText} numberOfLines={2}>{currentStep.instruction}</Text>
               <Text style={styles.instructionSub}>
-                {firstStep.distanceM < 1000 ? `${firstStep.distanceM}m` : `${(firstStep.distanceM / 1000).toFixed(1)} km`}
+                {distanceToNext != null
+                  ? formatDistance(distanceToNext)
+                  : formatDistance(currentStep.distanceM)
+                }
               </Text>
             </>
           ) : (
@@ -329,6 +428,12 @@ export default function NavigationScreen() {
             </>
           )}
         </View>
+        {/* Step progress counter */}
+        {steps.length > 1 && (
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>{currentStepIndex + 1}/{steps.length}</Text>
+          </View>
+        )}
       </Animated.View>
 
       {/* Mode Pill */}
@@ -339,11 +444,23 @@ export default function NavigationScreen() {
         <Text style={styles.modePillText}>{modeLabel(routeMode)}</Text>
       </Animated.View>
 
+      {/* Camera lock button */}
+      <TouchableOpacity
+        style={[styles.cameraLockBtn, { top: insets.top + 120 }]}
+        onPress={() => setCameraLocked(l => !l)}
+        activeOpacity={0.8}
+      >
+        <Ionicons
+          name={cameraLocked ? 'navigate' : 'navigate-outline'}
+          size={20}
+          color={cameraLocked ? Colors.emerald600 : Colors.gray400}
+        />
+      </TouchableOpacity>
+
       {/* Bottom Panel */}
       <Animated.View
         style={[styles.bottomPanel, { paddingBottom: insets.bottom + 16, transform: [{ translateY: panelAnim }], opacity: panelOpacity }]}
       >
-        {/* Route info */}
         <View style={styles.routeInfoRow}>
           <View style={styles.routeInfoItem}>
             <Text style={styles.routeInfoValue}>{durationMin > 0 ? `${durationMin} min` : '—'}</Text>
@@ -361,7 +478,6 @@ export default function NavigationScreen() {
           </View>
         </View>
 
-        {/* CO2 Counter */}
         <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.co2Box}>
           <View>
             <Text style={styles.co2Label}>CO₂ saved vs car</Text>
@@ -381,13 +497,11 @@ export default function NavigationScreen() {
           <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
         </TouchableOpacity>
 
-        {/* Destination */}
         <View style={styles.destBox}>
           <Ionicons name="location-outline" size={16} color={Colors.red600} />
           <Text style={styles.destText} numberOfLines={1}>{state?.destAddress ?? 'Destination'}</Text>
         </View>
 
-        {/* End Route */}
         <TouchableOpacity
           style={[styles.endBtn, completing && { opacity: 0.7 }]}
           onPress={handleEndRoute}
@@ -398,6 +512,7 @@ export default function NavigationScreen() {
           <Text style={styles.endBtnText}>{completing ? 'Saving trip…' : 'End Route'}</Text>
         </TouchableOpacity>
       </Animated.View>
+
       <Co2TransparencySheet
         visible={co2SheetVisible}
         data={co2DataFromRoute(ecoRoute ?? legacyRoute)}
@@ -433,6 +548,16 @@ const styles = StyleSheet.create({
   },
   instructionText: { color: '#1A1A1A', fontSize: 18, fontWeight: '700', marginBottom: 4 },
   instructionSub: { color: Colors.gray600, fontSize: 15, fontWeight: '600' },
+  stepBadge: {
+    backgroundColor: Colors.emerald50,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+    flexShrink: 0,
+  },
+  stepBadgeText: { color: Colors.emerald700, fontSize: 12, fontWeight: '700' },
   modePill: {
     position: 'absolute', left: 16,
     backgroundColor: Colors.white, borderRadius: 999,
@@ -441,6 +566,13 @@ const styles = StyleSheet.create({
     ...Shadow.md,
   },
   modePillText: { color: '#1A1A1A', fontWeight: '600', fontSize: 14 },
+  cameraLockBtn: {
+    position: 'absolute', right: 16,
+    width: 40, height: 40,
+    backgroundColor: Colors.white, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    ...Shadow.md,
+  },
   bottomPanel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28,

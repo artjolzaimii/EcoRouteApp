@@ -99,6 +99,7 @@ export interface CarbonBreakdownLeg {
   polyline?: string;
   startLocation?: LatLng;
   endLocation?: LatLng;
+  transitLine?: string;
 }
 
 export interface PartnerPin {
@@ -121,6 +122,7 @@ export interface PartnerPin {
 export interface EcoRoute {
   mode: string;
   subType?: string;
+  transitLineName?: string;
   durationMin: number;
   distanceKm: number;
   co2Grams: number;
@@ -133,6 +135,7 @@ export interface EcoRoute {
   greenPoints: number;
   recommended: boolean;
   recommendationReason?: string;
+  personalizedLabel?: string;
   moodReason?: string;
   transferCount?: number;
   requiresBooking?: boolean;

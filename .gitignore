@@ -49,3 +49,6 @@ app-example
 
 # Claude Code
 .claude/
+
+# Local planning files
+plans/

@@ -49,6 +49,7 @@ export default function RootLayout() {
           {/* Route flows */}
           <Stack.Screen name="search" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
           <Stack.Screen name="route-detail" options={{ headerShown: false }} />
+          <Stack.Screen name="transit-alternatives" options={{ headerShown: false, animation: 'slide_from_right' }} />
           <Stack.Screen name="navigation" options={{ headerShown: false }} />
           <Stack.Screen name="trip-completed" options={{ headerShown: false }} />
           <Stack.Screen name="saved-routes" options={{ headerShown: false }} />

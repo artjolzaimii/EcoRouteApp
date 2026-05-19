@@ -66,6 +66,7 @@ export interface ScoreResult {
     polyline?: string;
     startLocation?: { lat: number; lng: number };
     endLocation?: { lat: number; lng: number };
+    transitLine?: string;
   }>;
 }
 
@@ -91,7 +92,15 @@ export const scoreGoogleRoute = (
           polyline?: { points: string };
           start_location?: { lat: number; lng: number };
           end_location?: { lat: number; lng: number };
-          transit_details?: { line: { vehicle: { type: string } } };
+          transit_details?: { line: { short_name?: string; name?: string; vehicle: { type: string } } };
+          steps?: Array<{
+            html_instructions: string;
+            distance: { value: number };
+            duration?: { value: number };
+            polyline?: { points: string };
+            start_location?: { lat: number; lng: number };
+            end_location?: { lat: number; lng: number };
+          }>;
         }>;
       }>;
     }>;
@@ -152,15 +161,33 @@ export const scoreGoogleRoute = (
       totalDistanceM += step.distance.value;
       totalDurationS += step.duration.value;
 
-      carbonBreakdown.push({
-        mode: stepMode,
-        distanceKm: Math.round(stepDistKm * 100) / 100,
-        co2Grams: Math.round(stepCO2),
-        instruction: step.html_instructions?.replace(/<[^>]+>/g, "") ?? "",
-        polyline: step.polyline?.points,
-        startLocation: step.start_location,
-        endLocation: step.end_location,
-      });
+      // For walking/cycling steps that have nested sub-steps (common in transit walking legs),
+      // expand the sub-steps to give detailed turn-by-turn navigation instructions.
+      if ((stepMode === "WALKING" || stepMode === "BICYCLING") && step.steps && step.steps.length > 0) {
+        for (const sub of step.steps) {
+          carbonBreakdown.push({
+            mode: stepMode,
+            distanceKm: Math.round((sub.distance.value / 1000) * 100) / 100,
+            co2Grams: 0,
+            instruction: sub.html_instructions?.replace(/<[^>]+>/g, "") ?? "",
+            polyline: sub.polyline?.points,
+            startLocation: sub.start_location,
+            endLocation: sub.end_location,
+            transitLine: undefined,
+          });
+        }
+      } else {
+        carbonBreakdown.push({
+          mode: stepMode,
+          distanceKm: Math.round(stepDistKm * 100) / 100,
+          co2Grams: Math.round(stepCO2),
+          instruction: step.html_instructions?.replace(/<[^>]+>/g, "") ?? "",
+          polyline: step.polyline?.points,
+          startLocation: step.start_location,
+          endLocation: step.end_location,
+          transitLine: step.transit_details?.line?.short_name ?? step.transit_details?.line?.name ?? undefined,
+        });
+      }
     }
   }
 
@@ -180,26 +207,29 @@ export const scoreGoogleRoute = (
 // calculateGreenPoints
 // ─────────────────────────────────────────────
 
-export const calculateGreenPoints = (co2SavedGrams: number, mode: string): number => {
-  const multipliers: Record<string, number> = {
-    WALKING:          1.5,
-    BICYCLING:        1.5,
-    CYCLING:          1.5,  // Prisma TripMode alias for BICYCLING
-    EBIKE:            1.3,
-    ESCOOTER:         1.2,
-    MIXED:            1.2,
-    CYCLING_TRANSIT:  1.2,  // Prisma TripMode alias for MIXED
-    TRANSIT:          1.0,
-    TRAIN:            1.0,
-    COACH:            1.0,
-    EV:               0.8,
-    // Modes that should earn 0 points
-    PLANE:            0.0,
-    DRIVING:          0.0,
+export const calculateGreenPoints = (
+  co2SavedGrams: number,
+  mode: string,
+  multiplierOverrides?: Record<string, number>,
+): number => {
+  const defaultMultipliers: Record<string, number> = {
+    WALKING:         1.5,
+    BICYCLING:       1.5,
+    CYCLING:         1.5,
+    EBIKE:           1.5,
+    ESCOOTER:        1.2,
+    MIXED:           1.2,
+    CYCLING_TRANSIT: 1.2,
+    TRANSIT:         1.0,
+    TRAIN:           1.0,
+    COACH:           1.0,
+    EV:              1.0,
+    PLANE:           0.0,
+    DRIVING:         0.0,
   };
+  const multipliers = multiplierOverrides ?? defaultMultipliers;
   const base = co2SavedGrams / 10;
-  const multiplier = multipliers[mode.toUpperCase()] ?? 1.0;
-  return Math.round(base * multiplier);
+  return Math.round(base * (multipliers[mode.toUpperCase()] ?? 1.0));
 };
 
 // ─────────────────────────────────────────────

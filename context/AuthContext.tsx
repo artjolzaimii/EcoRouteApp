@@ -117,6 +117,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       emailConfirmedAt: data.user?.email_confirmed_at,
       supabaseProjectRef: getSupabaseProjectRef(),
     });
+
+    // Verify the account is not suspended on our backend
+    if (data.session) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        });
+        if (res.status === 403) {
+          await supabase.auth.signOut();
+          throw new Error('Your account has been suspended. Please contact support.');
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('suspended')) throw err;
+        // Network error — don't block login if backend is unreachable
+      }
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {

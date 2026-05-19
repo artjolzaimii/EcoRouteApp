@@ -1,8 +1,9 @@
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { MoodSelector } from '@/components/MoodSelector';
 import { Colors, Shadow } from '@/constants/theme';
-import { getEcoRoutes, recordPartnerClick } from '@/lib/api';
+import { getEcoRoutes, recordPartnerClick, saveRoute } from '@/lib/api';
 import { usePreferences, formatDistance } from '@/lib/preferences';
+import { RouteDetailSheet, SaveState } from '@/components/RouteDetailSheet';
 import { co2DataFromRoute } from '@/lib/co2Transparency';
 import {
   flattenRouteSegments,
@@ -93,6 +94,9 @@ export default function RoutesScreen() {
   const [rerankLoading, setRerankLoading] = useState(false);
   const [rerankError, setRerankError] = useState<string | null>(null);
   const [moodReasonSheet, setMoodReasonSheet] = useState<string | null>(null);
+  const [detailSheetRoute, setDetailSheetRoute] = useState<EcoRoute | undefined>();
+  const [detailSheetVisible, setDetailSheetVisible] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
 
   // Determine which route format we have
   const ecoResponse: EcoRoutesResponse | undefined = state?.ecoResponse;
@@ -107,6 +111,48 @@ export default function RoutesScreen() {
 
   const selectedEcoRoute: EcoRoute | undefined = hasEcoRoutes ? routes[selectedIndex] : undefined;
   const selectedLegacyRoute = hasLegacyRoutes ? (legacyRoutes as any)[selectedIndex] : undefined;
+
+  // One consolidated transit card + all non-transit routes
+  const displayRoutes = useMemo(() => {
+    if (!hasEcoRoutes) return [] as Array<{ route: EcoRoute & { _synthetic?: boolean }; index: number }>;
+    const indexed = routes.map((r, i) => ({ route: r as EcoRoute & { _synthetic?: boolean }, index: i }));
+    const nonTransit = indexed.filter(x => x.route.mode !== 'TRANSIT');
+    const transit = indexed.filter(x => x.route.mode === 'TRANSIT');
+    return [...nonTransit, ...(transit.length > 0 ? [transit[0]] : [])];
+  }, [routes, hasEcoRoutes]);
+
+  const handleSaveRoute = async () => {
+    const route = detailSheetRoute;
+    const s = routeStore.get();
+    if (!route || !s || saveState !== 'idle') return;
+    setSaveState('saving');
+    try {
+      await saveRoute({
+        originAddress: s.originAddress,
+        destAddress: s.destAddress,
+        originLat: s.originLat,
+        originLng: s.originLng,
+        destLat: s.destLat,
+        destLng: s.destLng,
+        mode: route.mode,
+        subType: route.subType,
+        distanceKm: route.distanceKm,
+        durationMin: route.durationMin,
+        co2Grams: route.co2Grams,
+        savedVsCar: route.savedVsCar,
+        carEquivalentCO2: route.carEquivalentCO2,
+        carbonScore: route.carbonScore,
+        greenPoints: route.greenPoints,
+        finalScore: route.finalScore,
+        mood: s.mood,
+        moodReason: route.moodReason,
+        routeData: route,
+      });
+      setSaveState('saved');
+    } catch {
+      setSaveState('idle');
+    }
+  };
 
   const originLat = state?.originLat;
   const originLng = state?.originLng;
@@ -182,6 +228,10 @@ export default function RoutesScreen() {
       recommendationReason: 'No cycling data for this area — follows the walking path',
       partnerStop: undefined,
       _synthetic: true,
+      carbonBreakdown: walkingRoute.carbonBreakdown.map(leg => ({
+        ...leg,
+        mode: 'BICYCLING',
+      })),
     };
 
     const updatedRoutes = ecoResp.routes.flatMap(r =>
@@ -260,6 +310,10 @@ export default function RoutesScreen() {
     const active = selectedIndex === idx;
     const cs = carbonScoreStyle(route.carbonScore);
     const isRecommended = route.recommended;
+    const isTransit = route.mode === 'TRANSIT';
+    const cardLabel = isTransit
+      ? `Transit · via ${route.transitLineName ?? 'Local Transit'}`
+      : modeLabel(route.mode, route.subType);
 
     return (
       <TouchableOpacity
@@ -272,6 +326,13 @@ export default function RoutesScreen() {
           <View style={styles.recommendedBanner}>
             <Ionicons name="star" size={11} color={Colors.emerald700} />
             <Text style={styles.recommendedText}>Recommended</Text>
+            {route.personalizedLabel && (
+              <>
+                <Text style={styles.recommendedSeparator}> · </Text>
+                <Ionicons name="person-outline" size={10} color={Colors.emerald700} />
+                <Text style={styles.recommendedText}>{route.personalizedLabel}</Text>
+              </>
+            )}
           </View>
         )}
         {route.partnerStop && (
@@ -288,7 +349,7 @@ export default function RoutesScreen() {
             </View>
             <View>
               <Text style={[styles.routeCardName, active && styles.routeCardNameActive]}>
-                {modeLabel(route.mode, route.subType)}
+                {cardLabel}
               </Text>
               <View style={styles.routeCardMeta}>
                 <Ionicons name="location-outline" size={12} color={Colors.gray500} />
@@ -371,24 +432,43 @@ export default function RoutesScreen() {
           );
         })()}
 
-        <View style={styles.cardInfoRow}>
-          {route.moodReason && localMood === state?.mood && (
+        <View style={styles.cardBottomRow}>
+          <View style={styles.cardInfoBtns}>
+            {route.moodReason && localMood === state?.mood && (
+              <TouchableOpacity
+                style={styles.co2InfoBtn}
+                onPress={() => setMoodReasonSheet(route.moodReason!)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="help-circle-outline" size={14} color={Colors.emerald700} />
+                <Text style={styles.co2InfoText}>Why this route?</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.co2InfoBtn}
-              onPress={() => setMoodReasonSheet(route.moodReason!)}
+              onPress={() => setCo2SheetRoute(route)}
               activeOpacity={0.8}
             >
-              <Ionicons name="help-circle-outline" size={14} color={Colors.emerald700} />
-              <Text style={styles.co2InfoText}>Why this route?</Text>
+              <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
+              <Text style={styles.co2InfoText}>CO₂ info</Text>
             </TouchableOpacity>
-          )}
+          </View>
           <TouchableOpacity
-            style={styles.co2InfoBtn}
-            onPress={() => setCo2SheetRoute(route)}
-            activeOpacity={0.8}
+            style={styles.seeDetailsBtn}
+            onPress={() => {
+              routeStore.setSelectedIndex(idx);
+              if (isTransit) {
+                router.push('/transit-alternatives' as any);
+              } else {
+                setDetailSheetRoute(route);
+                setSaveState('idle');
+                setDetailSheetVisible(true);
+              }
+            }}
+            activeOpacity={0.85}
           >
-            <Ionicons name="information-circle-outline" size={14} color={Colors.emerald700} />
-            <Text style={styles.co2InfoText}>How is CO₂ calculated?</Text>
+            <Text style={styles.seeDetailsBtnText}>See Details</Text>
+            <Ionicons name={isTransit ? 'chevron-forward-outline' : 'chevron-up-outline'} size={13} color={Colors.white} />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -614,7 +694,7 @@ export default function RoutesScreen() {
 
               <View style={styles.routeList}>
                 {hasEcoRoutes
-                  ? routes.map((r, idx) => renderEcoRouteCard(r, idx))
+                  ? displayRoutes.map(({ route: r, index }) => renderEcoRouteCard(r, index))
                   : legacyRoutes.map((r: any, idx: number) => renderLegacyRouteCard(r, idx))
                 }
               </View>
@@ -658,10 +738,10 @@ export default function RoutesScreen() {
               <TouchableOpacity
                 style={styles.startBtn}
                 activeOpacity={0.9}
-                onPress={() => router.push('/route-detail')}
+                onPress={() => router.push('/navigation')}
               >
                 <Ionicons name="navigate-outline" size={20} color={Colors.white} />
-                <Text style={styles.startBtnText}>Start Navigation</Text>
+                <Text style={styles.startBtnText}>Start Route</Text>
               </TouchableOpacity>
 
               <View style={{ height: 16 }} />
@@ -669,6 +749,19 @@ export default function RoutesScreen() {
           </ScrollView>
         </View>
       </View>
+
+      {/* Route Detail Sheet (non-transit card tap) */}
+      <RouteDetailSheet
+        visible={detailSheetVisible}
+        route={detailSheetRoute}
+        onClose={() => setDetailSheetVisible(false)}
+        onStartRoute={() => {
+          setDetailSheetVisible(false);
+          router.push('/navigation');
+        }}
+        onSave={handleSaveRoute}
+        saveState={saveState}
+      />
 
       {/* Partner Bottom Sheet */}
       <Modal visible={modalVisible} transparent animationType="none" onRequestClose={closeSheet}>
@@ -750,7 +843,7 @@ export default function RoutesScreen() {
                 <TouchableOpacity
                   style={styles.earnBtn}
                   activeOpacity={0.9}
-                  onPress={() => { closeSheet(); router.push('/route-detail'); }}
+                  onPress={() => { closeSheet(); }}
                 >
                   <Text style={styles.earnBtnText}>Earn with this route</Text>
                 </TouchableOpacity>
@@ -873,8 +966,28 @@ const styles = StyleSheet.create({
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statEco: { fontSize: 12, fontWeight: '600', color: Colors.emerald600 },
   statGray: { fontSize: 12, color: Colors.gray600 },
-  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 10 },
+  co2InfoBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
   co2InfoText: { color: Colors.emerald700, fontSize: 12, fontWeight: '600' },
+
+  cardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    gap: 8,
+  },
+  cardInfoBtns: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' },
+  seeDetailsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.emerald600,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    ...Shadow.sm,
+  },
+  seeDetailsBtnText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
 
   recommendedBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -882,6 +995,7 @@ const styles = StyleSheet.create({
     borderRadius: 6, alignSelf: 'flex-start', marginBottom: 8,
   },
   recommendedText: { fontSize: 10, fontWeight: '700', color: Colors.emerald700 },
+  recommendedSeparator: { fontSize: 10, color: Colors.emerald700, opacity: 0.6 },
 
   partnerStopBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -957,8 +1071,6 @@ const styles = StyleSheet.create({
 
   moodReasonRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
   moodReasonText: { fontSize: 12, color: Colors.emerald700, flex: 1, fontStyle: 'italic' },
-
-  cardInfoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 },
 
   moodReasonSheetWrap: {
     position: 'absolute',

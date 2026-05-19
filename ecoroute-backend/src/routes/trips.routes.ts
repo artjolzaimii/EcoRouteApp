@@ -5,7 +5,9 @@ import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody, validateQuery } from "../middleware/validate.middleware";
 import { calculateCarbon, calculateGreenPoints } from "../services/carbon.service";
+import { getMultipliers } from "../services/settingsCache";
 import { awardPoints, updateStreak, checkAndAwardBadges } from "../services/points.service";
+import { updateUserWeights } from "../services/weightLearning.service";
 
 const router = Router();
 
@@ -58,7 +60,8 @@ router.post(
       // Prefer the selected route's precomputed points so completion matches the
       // route card exactly. No per-trip cap is applied here; the old 500-point cap
       // was undocumented and caused completed trips to show fewer points.
-      const greenPoints = body.greenPoints ?? calculateGreenPoints(co2SavedG, body.mode);
+      const multipliers = await getMultipliers();
+      const greenPoints = body.greenPoints ?? calculateGreenPoints(co2SavedG, body.mode, multipliers);
 
       // Create the trip record
       const trip = await prisma.trip.create({
@@ -201,6 +204,9 @@ router.post(
           });
         }
       }
+
+      // Non-blocking: update learned weight model from trip history
+      updateUserWeights(profileId).catch(() => {});
 
       res.status(201).json({
         success: true,

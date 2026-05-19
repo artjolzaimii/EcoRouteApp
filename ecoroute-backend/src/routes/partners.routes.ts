@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody, validateQuery } from "../middleware/validate.middleware";
 import { findNearbyPartners, recordPartnerClick } from "../services/partners.service";
+import { prisma } from "../config/prisma";
 
 const router = Router();
 
@@ -50,6 +51,63 @@ router.post(
       const { partnerId } = req.body as z.infer<typeof ClickSchema>;
       await recordPartnerClick(partnerId);
       res.json({ success: true, data: { recorded: true } });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── POST /api/partners/apply ─────────────────────────────────────────────────
+// Public endpoint — no auth required. Creates a PENDING partner application.
+
+const ApplySchema = z.object({
+  name: z.string().min(2).max(100),
+  description: z.string().min(20).max(2000),
+  category: z.enum(["FOOD", "RETAIL", "TRANSPORT", "FITNESS", "WELLNESS", "ENTERTAINMENT", "OTHER"]),
+  partnerType: z.enum(["ECO_BUSINESS", "MOBILITY_PROVIDER"]).default("ECO_BUSINESS"),
+  address: z.string().min(5).max(300),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  websiteUrl: z.string().url().optional().or(z.literal("")).transform((v) => v || undefined),
+  contactName: z.string().min(2).max(100),
+  contactEmail: z.string().email(),
+  contactPhone: z.string().max(30).optional(),
+});
+
+router.post(
+  "/apply",
+  validateBody(ApplySchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const body = req.body as z.infer<typeof ApplySchema>;
+
+      const contactBlock = [
+        "[Application Contact]",
+        `Name: ${body.contactName}`,
+        `Email: ${body.contactEmail}`,
+        body.contactPhone ? `Phone: ${body.contactPhone}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await prisma.ecoPartner.create({
+        data: {
+          name: body.name,
+          description: `${contactBlock}\n\n${body.description}`,
+          category: body.category,
+          partnerType: body.partnerType,
+          status: "PENDING",
+          address: body.address,
+          lat: body.lat,
+          lng: body.lng,
+          websiteUrl: body.websiteUrl ?? null,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "Your application has been submitted and is pending review.",
+      });
     } catch (err) {
       next(err);
     }
