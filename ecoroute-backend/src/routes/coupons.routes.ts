@@ -6,6 +6,7 @@ import { validateBody } from "../middleware/validate.middleware";
 import { redeemPoints } from "../services/points.service";
 import { recordCouponIssued, recordCouponRedeemed } from "../services/partners.service";
 import { generateCouponCode } from "../utils/helpers";
+import { cacheGet, cacheSet, cacheDel } from "../services/cache.service";
 
 const router = Router();
 
@@ -27,8 +28,12 @@ router.get(
     try {
       const profileId = req.user!.profileId;
 
+      // Per-user cache, 2 min TTL (invalidated on /redeem and /use)
+      const cacheKey = `coupons:${profileId}`;
+      const cached = await cacheGet<{ available: unknown[]; mine: unknown[] }>(cacheKey);
+      if (cached) { res.json({ success: true, data: cached }); return; }
+
       const [available, mine] = await Promise.all([
-        // All active coupons not yet claimed by this user
         prisma.coupon.findMany({
           where: {
             isActive: true,
@@ -38,22 +43,16 @@ router.get(
           include: { partner: { select: { id: true, name: true, logoUrl: true } } },
           orderBy: { pointsCost: "asc" },
         }),
-        // Coupons already owned by this user
         prisma.userCoupon.findMany({
           where: { profileId },
-          include: {
-            coupon: {
-              include: { partner: { select: { id: true, name: true, logoUrl: true } } },
-            },
-          },
+          include: { coupon: { include: { partner: { select: { id: true, name: true, logoUrl: true } } } } },
           orderBy: { createdAt: "desc" },
         }),
       ]);
 
-      res.json({
-        success: true,
-        data: { available, mine },
-      });
+      const payload = { available, mine };
+      await cacheSet(cacheKey, payload, 2 * 60); // 2 min TTL
+      res.json({ success: true, data: payload });
     } catch (err) {
       next(err);
     }
@@ -134,6 +133,9 @@ router.post(
           data: { issuedCount: { increment: 1 } },
         }),
       ]);
+
+      // Invalidate coupon cache so the next GET returns fresh data
+      await cacheDel(`coupons:${profileId}`);
 
       // Record analytics
       await recordCouponIssued(coupon.partnerId);

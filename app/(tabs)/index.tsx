@@ -3,6 +3,7 @@ import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { api, getEcoRoutes } from '@/lib/api';
 import { reverseGeocode } from '@/lib/geocode';
+import { homeStore, HomeTodayStats, HomeChallenge } from '@/lib/homeStore';
 import { usePreferences } from '@/lib/preferences';
 import { routeStore } from '@/lib/routeStore';
 import { RouteMood, TripMode } from '@/lib/types';
@@ -127,11 +128,13 @@ export default function HomeScreen() {
   const [partners, setPartners] = useState<EcoPartner[]>(FALLBACK_PARTNERS);
   const [partnersLoading, setPartnersLoading] = useState(false);
 
-  // Active challenges preview
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  // Active challenges preview — init from cache for instant display
+  const [challenges, setChallenges] = useState<Challenge[]>(
+    homeStore.get()?.challenges.filter((c) => !c.completed).slice(0, 2) ?? []
+  );
 
-  // Live stats for the header "Today's Impact" strip
-  const [userStats, setUserStats] = useState<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number } | null>(null);
+  // Live stats for the header — init from cache for instant display
+  const [userStats, setUserStats] = useState<HomeTodayStats | null>(homeStore.get()?.stats ?? null);
 
   const mapRef = useRef<MapView>(null);
 
@@ -140,16 +143,35 @@ export default function HomeScreen() {
     loadCurrentLocation();
   }, []);
 
-  // Load TODAY's stats and challenges on every focus so they refresh after a trip
+  const fetchHomeWidgets = useCallback(async () => {
+    const [statsRes, challengesRes] = await Promise.allSettled([
+      api.get<HomeTodayStats>('/api/impact/today'),
+      api.get<HomeChallenge[]>('/api/challenges'),
+    ]);
+    const stats = statsRes.status === 'fulfilled' ? statsRes.value : (homeStore.get()?.stats ?? null);
+    const allChals = challengesRes.status === 'fulfilled' && Array.isArray(challengesRes.value)
+      ? challengesRes.value
+      : (homeStore.get()?.challenges ?? []);
+    if (statsRes.status === 'fulfilled') setUserStats(stats);
+    if (challengesRes.status === 'fulfilled') setChallenges(allChals.filter((c) => !c.completed).slice(0, 2));
+    homeStore.set(stats, allChals);
+  }, []);
+
+  // Load TODAY's stats and challenges — use cache to avoid re-fetching on every tab switch
   useFocusEffect(
     useCallback(() => {
-      api.get<{ totalPoints: number; totalCo2SavedG: number; totalTrips: number }>('/api/impact/today')
-        .then((data) => setUserStats(data))
-        .catch(() => {});
-      api.get<Challenge[]>('/api/challenges')
-        .then((data) => setChallenges(Array.isArray(data) ? data.filter((c) => !c.completed).slice(0, 2) : []))
-        .catch(() => {});
-    }, []),
+      const cached = homeStore.get();
+      if (cached) {
+        setUserStats(cached.stats);
+        setChallenges(cached.challenges.filter((c) => !c.completed).slice(0, 2));
+        // Refresh in background only if stale (> 1 min)
+        if (!homeStore.isFresh()) {
+          fetchHomeWidgets();
+        }
+      } else {
+        fetchHomeWidgets();
+      }
+    }, [fetchHomeWidgets]),
   );
 
   // Consume pending origin / destination from the search screen on focus

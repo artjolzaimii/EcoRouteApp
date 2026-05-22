@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateQuery, validateBody } from "../middleware/validate.middleware";
 import { redeemPoints } from "../services/points.service";
+import { cacheGet, cacheSet } from "../services/cache.service";
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -12,9 +13,19 @@ const prisma = new PrismaClient();
 
 router.get("/categories", async (_req, res, next) => {
   try {
+    const CACHE_KEY = "marketplace:categories";
+
+    const cached = await cacheGet<unknown[]>(CACHE_KEY);
+    if (cached) {
+      res.json({ success: true, data: cached });
+      return;
+    }
+
     const categories = await (prisma as any).marketplaceCategory.findMany({
       orderBy: { sortOrder: "asc" },
     });
+
+    await cacheSet(CACHE_KEY, categories, 30 * 60); // 30 min — categories rarely change
     res.json({ success: true, data: categories });
   } catch (err) {
     next(err);
@@ -28,16 +39,29 @@ const listingsQuerySchema = z.object({
   categoryId: z.string().optional(),
   payment:    z.enum(["MONEY_ONLY", "FLEXIBLE"]).optional(),
   sort:       z.enum(["newest", "price_asc", "price_desc", "points_asc"]).optional(),
-  limit:      z.coerce.number().min(1).max(100).default(40),
+  limit:      z.coerce.number().min(1).max(100).default(6),
   offset:     z.coerce.number().min(0).default(0),
 });
+
+function listingsCacheKey(p: z.infer<typeof listingsQuerySchema>): string {
+  return `marketplace:listings:${p.q ?? ""}_${p.categoryId ?? ""}_${p.payment ?? ""}_${p.sort ?? ""}_${p.limit}_${p.offset}`;
+}
 
 router.get(
   "/listings",
   validateQuery(listingsQuerySchema),
   async (req, res, next) => {
     try {
-      const { q, categoryId, payment, sort, limit, offset } = req.query as unknown as z.infer<typeof listingsQuerySchema>;
+      const params = req.query as unknown as z.infer<typeof listingsQuerySchema>;
+      const { q, categoryId, payment, sort, limit, offset } = params;
+
+      // Return cached page if available (5 min TTL — public, non-user-specific data)
+      const cacheKey = listingsCacheKey(params);
+      const cached = await cacheGet<{ listings: unknown[]; total: number; limit: number; offset: number; hasMore: boolean }>(cacheKey);
+      if (cached) {
+        res.json({ success: true, data: cached });
+        return;
+      }
 
       const where: Record<string, unknown> = { status: "ACTIVE" };
       if (categoryId) where.categoryId = categoryId;
@@ -69,10 +93,9 @@ router.get(
         (prisma as any).marketplaceListing.count({ where }),
       ]);
 
-      // DEBUG — remove after verification
-      console.log("[marketplace/listings] returned:", total, "| IDs:", listings.map((l: any) => l.id), "| statuses:", listings.map((l: any) => l.status));
-
-      res.json({ success: true, data: { listings, total, limit, offset } });
+      const payload = { listings, total, limit, offset, hasMore: offset + listings.length < total };
+      await cacheSet(cacheKey, payload, 5 * 60); // 5 min TTL
+      res.json({ success: true, data: payload });
     } catch (err) {
       next(err);
     }
