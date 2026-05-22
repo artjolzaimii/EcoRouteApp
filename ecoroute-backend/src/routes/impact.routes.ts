@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { gramsToCo2TreeDays, gramsToCarTripsAvoided } from "../services/carbon.service";
 import { daysAgo, startOfDay, startOfMonth, toDateString } from "../utils/helpers";
 import { DayImpact, ImpactSummary } from "../types";
+import { cacheGet, cacheSet } from "../services/cache.service";
 
 const router = Router();
 
@@ -76,30 +77,27 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const profileId = req.user!.profileId;
+
+      // Per-user cache, 1 min TTL (stats change after each trip)
+      const cacheKey = `impact:today:${profileId}`;
+      const cached = await cacheGet<object>(cacheKey);
+      if (cached) { res.json({ success: true, data: cached }); return; }
+
       const todayStart = startOfDay(new Date());
-
       const trips = await prisma.trip.findMany({
-        where: {
-          profileId,
-          status: "COMPLETED",
-          completedAt: { gte: todayStart },
-        },
-        select: {
-          co2SavedG: true,
-          distanceKm: true,
-          pointsEarned: true,
-        },
+        where: { profileId, status: "COMPLETED", completedAt: { gte: todayStart } },
+        select: { co2SavedG: true, distanceKm: true, pointsEarned: true },
       });
 
-      const totalCo2SavedG = trips.reduce((s, t) => s + t.co2SavedG, 0);
-      const totalTrips     = trips.length;
-      const totalPoints    = trips.reduce((s, t) => s + t.pointsEarned, 0);
-      const totalDistanceKm = Math.round(trips.reduce((s, t) => s + Number(t.distanceKm), 0) * 100) / 100;
+      const payload = {
+        totalCo2SavedG:   trips.reduce((s, t) => s + t.co2SavedG, 0),
+        totalTrips:       trips.length,
+        totalPoints:      trips.reduce((s, t) => s + t.pointsEarned, 0),
+        totalDistanceKm:  Math.round(trips.reduce((s, t) => s + Number(t.distanceKm), 0) * 100) / 100,
+      };
 
-      res.json({
-        success: true,
-        data: { totalCo2SavedG, totalTrips, totalPoints, totalDistanceKm },
-      });
+      await cacheSet(cacheKey, payload, 60); // 1 min TTL
+      res.json({ success: true, data: payload });
     } catch (err) {
       next(err);
     }
@@ -114,7 +112,14 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const summary = await buildImpactSummary(req.user!.profileId, daysAgo(6));
+      const profileId = req.user!.profileId;
+
+      const cacheKey = `impact:weekly:${profileId}`;
+      const cached = await cacheGet<ImpactSummary>(cacheKey);
+      if (cached) { res.json({ success: true, data: cached }); return; }
+
+      const summary = await buildImpactSummary(profileId, daysAgo(6));
+      await cacheSet(cacheKey, summary, 5 * 60); // 5 min TTL
       res.json({ success: true, data: summary });
     } catch (err) {
       next(err);
@@ -130,7 +135,14 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const summary = await buildImpactSummary(req.user!.profileId, startOfMonth());
+      const profileId = req.user!.profileId;
+
+      const cacheKey = `impact:monthly:${profileId}`;
+      const cached = await cacheGet<ImpactSummary>(cacheKey);
+      if (cached) { res.json({ success: true, data: cached }); return; }
+
+      const summary = await buildImpactSummary(profileId, startOfMonth());
+      await cacheSet(cacheKey, summary, 10 * 60); // 10 min TTL
       res.json({ success: true, data: summary });
     } catch (err) {
       next(err);

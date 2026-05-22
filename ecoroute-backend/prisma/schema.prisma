@@ -773,3 +773,20 @@ model AppSetting {
 
   @@map("app_settings")
 }
+
+// ─────────────────────────────────────────────
+// Referral
+// ─────────────────────────────────────────────
+
+model Referral {
+  id         String   @id @default(cuid())
+  referrerId String   @map("referrer_id")
+  referreeId String   @unique @map("referree_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  referrer Profile @relation("ReferralsSent",     fields: [referrerId], references: [id], onDelete: Cascade)
+  referree Profile @relation("ReferralsReceived", fields: [referreeId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+  @@map("referrals")
+}

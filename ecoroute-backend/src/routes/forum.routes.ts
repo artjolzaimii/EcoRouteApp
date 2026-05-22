@@ -6,6 +6,7 @@ import { supabaseAdmin } from "../config/supabase";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateQuery } from "../middleware/validate.middleware";
 import { v4 as uuid } from "uuid";
+import { cacheGet, cacheSet } from "../services/cache.service";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -24,6 +25,14 @@ router.get(
     try {
       const { sort, cursor } = req.query as unknown as z.infer<typeof ListQuerySchema>;
 
+      // Public forum listing — cache per sort+cursor page (2 min TTL)
+      const cacheKey = `forum:list:${sort}:${cursor ?? "first"}`;
+      const cached = await cacheGet<unknown[]>(cacheKey);
+      if (cached) {
+        res.json({ success: true, data: cached });
+        return;
+      }
+
       const orderBy =
         sort === "likes"   ? [{ likeCount: "desc" as const }, { createdAt: "desc" as const }]
         : sort === "newest" ? [{ createdAt: "desc" as const }]
@@ -36,20 +45,20 @@ router.get(
         include: { profile: { select: { fullName: true } } },
       });
 
-      res.json({
-        success: true,
-        data: forums.map((f) => ({
-          id: f.id,
-          profileId: f.profileId,
-          authorName: f.profile.fullName,
-          title: f.title,
-          body: f.body,
-          imageUrl: f.imageUrl,
-          likeCount: f.likeCount,
-          commentCount: f.commentCount,
-          createdAt: f.createdAt.toISOString(),
-        })),
-      });
+      const payload = forums.map((f) => ({
+        id: f.id,
+        profileId: f.profileId,
+        authorName: f.profile.fullName,
+        title: f.title,
+        body: f.body,
+        imageUrl: f.imageUrl,
+        likeCount: f.likeCount,
+        commentCount: f.commentCount,
+        createdAt: f.createdAt.toISOString(),
+      }));
+
+      await cacheSet(cacheKey, payload, 2 * 60); // 2 min TTL
+      res.json({ success: true, data: payload });
     } catch (err) {
       next(err);
     }

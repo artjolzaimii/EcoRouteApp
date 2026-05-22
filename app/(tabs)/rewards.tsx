@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,45 +14,15 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
+import {
+  rewardsStore,
+  RewardsCoupon as Coupon,
+  RewardsUserCoupon as UserCoupon,
+  RewardsCouponsData as CouponsData,
+  RewardsChallenge as Challenge,
+} from '@/lib/rewardsStore';
 
-type Coupon = {
-  id: string;
-  title: string;
-  description: string;
-  pointsCost: number;
-  discountValue: number;
-  discountType: string;
-  expiresAt: string | null;
-  partner: { id: string; name: string; logoUrl: string | null };
-};
-
-type UserCoupon = {
-  id: string;
-  code: string;
-  redeemedAt: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  coupon: Coupon;
-};
-
-type CouponsData = {
-  available: Coupon[];
-  mine: UserCoupon[];
-};
-
-type UserStats = {
-  totalPoints: number;
-};
-
-type Challenge = {
-  id: string;
-  title: string;
-  description: string;
-  targetValue: number;
-  rewardPoints: number;
-  progress: number;
-  completed: boolean;
-};
+type UserStats = { totalPoints: number };
 
 function formatDiscount(coupon: Coupon): string {
   if (coupon.discountType === 'PERCENT') return `${coupon.discountValue}% Off`;
@@ -81,23 +51,28 @@ const ICON_COLORS: { bg: string; icon: string }[] = [
 export default function RewardsScreen() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'available' | 'redeemed'>('available');
-  const [coupons, setCoupons] = useState<CouponsData>({ available: [], mine: [] });
-  const [userPoints, setUserPoints] = useState(0);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [redeeming, setRedeeming] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // Initialise from cache so screen is instant on return
+  const initial = rewardsStore.get();
+  const [coupons, setCoupons]       = useState<CouponsData>(initial?.coupons ?? { available: [], mine: [] });
+  const [userPoints, setUserPoints] = useState(initial?.userPoints ?? 0);
+  const [challenges, setChallenges] = useState<Challenge[]>(initial?.challenges ?? []);
+  const [loading, setLoading]       = useState(!initial);
+  const [redeeming, setRedeeming]   = useState<string | null>(null);
+
+  const loadData = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     try {
       const [couponsData, statsData, challengesData] = await Promise.all([
         api.get<CouponsData>('/api/coupons'),
         api.get<UserStats>('/api/user/stats'),
         api.get<Challenge[]>('/api/challenges'),
       ]);
+      const chals = Array.isArray(challengesData) ? challengesData : [];
       setCoupons(couponsData);
       setUserPoints(statsData.totalPoints ?? 0);
-      setChallenges(Array.isArray(challengesData) ? challengesData : []);
+      setChallenges(chals);
+      rewardsStore.set(couponsData, statsData.totalPoints ?? 0, chals);
     } catch {
       // silently fail
     } finally {
@@ -105,10 +80,23 @@ export default function RewardsScreen() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Reload on focus so points balance stays fresh after a trip or redemption
-  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+  // Single useFocusEffect (removed redundant useEffect — useFocusEffect fires on mount too)
+  useFocusEffect(useCallback(() => {
+    const cached = rewardsStore.get();
+    if (cached) {
+      // Show cached data immediately — no spinner
+      setCoupons(cached.coupons);
+      setUserPoints(cached.userPoints);
+      setChallenges(cached.challenges);
+      setLoading(false);
+      // Background refresh only if stale
+      if (!rewardsStore.isFresh()) {
+        loadData(false);
+      }
+    } else {
+      loadData(true);
+    }
+  }, [loadData]));
 
   const handleRedeem = async (coupon: Coupon) => {
     Alert.alert(
@@ -123,7 +111,8 @@ export default function RewardsScreen() {
             setRedeeming(coupon.id);
             try {
               await api.post('/api/coupons/redeem', { couponId: coupon.id });
-              await loadData(); // refresh data
+              rewardsStore.clear(); // points changed — force full refresh
+              await loadData(true);
               Alert.alert('Redeemed!', `Your coupon for ${coupon.partner.name} is ready in "My Rewards".`);
             } catch (err: any) {
               Alert.alert('Redemption failed', err.message ?? 'Could not redeem coupon.');

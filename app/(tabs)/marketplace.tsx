@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,24 +17,9 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow, BorderRadius, FontSize } from '@/constants/theme';
 import { api } from '@/lib/api';
+import { marketplaceStore, MktCategory as ApiCategory, MktListing as ApiListing } from '@/lib/marketplaceStore';
 
-// ── API data types ────────────────────────────────────────────────────────────
-
-interface ApiCategory {
-  id: string; slug: string; label: string; glyph: string;
-}
-
-interface ApiListing {
-  id: string;
-  title: string;
-  description: string | null;
-  pointsPrice: number | null;
-  moneyPrice: number | null;
-  payment: string;
-  category: ApiCategory;
-  partner: { businessName: string; location: string | null };
-  images: { url: string; isCover: boolean }[];
-}
+const PAGE_SIZE = 6;
 
 // Map API category slug → Ionicons name
 const SLUG_ICON: Record<string, string> = {
@@ -57,63 +42,223 @@ const CARD_WIDTH = (SCREEN_WIDTH - H_PAD * 2 - COL_GAP) / 2;
 
 type SortOption = 'popular' | 'points' | 'distance';
 
+interface FetchParams {
+  q?: string;
+  categoryId?: string;
+  backendSort?: string;
+}
+
+function toBackendSort(s: SortOption): string | undefined {
+  if (s === 'points') return 'points_asc';
+  return undefined;
+}
+
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets();
-  const [searchQuery, setSearchQuery]   = useState('');
+  const [searchQuery, setSearchQuery]       = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
-  const [showFilters, setShowFilters]   = useState(false);
+  const [showFilters, setShowFilters]       = useState(false);
   const [showNearbyOnly, setShowNearbyOnly] = useState(false);
-  const [sortBy, setSortBy]             = useState<SortOption>('popular');
-  const [userPoints, setUserPoints]     = useState(0);
-  const [loading, setLoading]           = useState(true);
-  const [categories, setCategories]     = useState<ApiCategory[]>([]);
-  const [listings, setListings]         = useState<ApiListing[]>([]);
+  const [sortBy, setSortBy]                 = useState<SortOption>('popular');
+
+  // Initialise from cache so the screen is instant on return
+  const initial = marketplaceStore.get();
+  const [userPoints, setUserPoints]   = useState(initial?.userPoints ?? 0);
+  const [loading, setLoading]         = useState(!initial);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore]         = useState(initial?.hasMore ?? true);
+  const [offset, setOffset]           = useState(initial?.listings.length ?? 0);
+  const [categories, setCategories]   = useState<ApiCategory[]>(initial?.categories ?? []);
+  const [listings, setListings]       = useState<ApiListing[]>(initial?.listings ?? []);
+
+  // Guard against duplicate in-flight requests
+  const fetchingRef = useRef(false);
+  const isMountedRef = useRef(false);
+  const activeFetchParamsRef = useRef<FetchParams>({});
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchFirstPage = useCallback(async (params: FetchParams = {}, showSpinner = true) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    if (showSpinner) setLoading(true);
+    try {
+      const qp = new URLSearchParams({ limit: String(PAGE_SIZE), offset: '0' });
+      if (params.q) qp.set('q', params.q);
+      if (params.categoryId) qp.set('categoryId', params.categoryId);
+      if (params.backendSort) qp.set('sort', params.backendSort);
+
+      const [statsRes, catsRes, listRes] = await Promise.allSettled([
+        api.get<{ totalPoints: number }>('/api/user/stats'),
+        api.get<ApiCategory[]>('/api/marketplace/categories'),
+        api.get<{ listings: ApiListing[]; total: number; hasMore: boolean }>(
+          `/api/marketplace/listings?${qp.toString()}`
+        ),
+      ]);
+
+      const pts = statsRes.status === 'fulfilled' ? (statsRes.value?.totalPoints ?? 0) : 0;
+
+      let cats: ApiCategory[] = [];
+      if (catsRes.status === 'fulfilled') {
+        const raw = catsRes.value;
+        cats = Array.isArray(raw) ? raw : (raw as any).categories ?? [];
+      }
+
+      let newListings: ApiListing[] = [];
+      let total = 0;
+      let more = false;
+      if (listRes.status === 'fulfilled') {
+        newListings = listRes.value?.listings ?? [];
+        total       = listRes.value?.total ?? 0;
+        more        = listRes.value?.hasMore ?? newListings.length < total;
+      }
+
+      setUserPoints(pts);
+      setCategories(cats);
+      setListings(newListings);
+      setHasMore(more);
+      setOffset(newListings.length);
+      activeFetchParamsRef.current = params;
+
+      // Only cache the unfiltered view so returning to the tab is always clean
+      if (!params.q && !params.categoryId && !params.backendSort) {
+        marketplaceStore.set({ categories: cats, listings: newListings, total, hasMore: more, userPoints: pts });
+      }
+    } catch {
+      // keep existing state on error
+    } finally {
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      (async () => {
-        setLoading(true);
-        try {
-          const [statsRes, catsRes, listRes] = await Promise.allSettled([
-            api.get<{ totalPoints: number }>('/api/user/stats'),
-            api.get<ApiCategory[] | { categories: ApiCategory[] }>('/api/marketplace/categories'),
-            api.get<{ listings: ApiListing[] }>('/api/marketplace/listings?limit=100'),
-          ]);
+      isMountedRef.current = true;
+      const cached = marketplaceStore.get();
+      const isDefaultView = activeCategory === 'all' && !searchQuery && sortBy === 'popular';
 
-          if (statsRes.status === 'fulfilled') setUserPoints(statsRes.value.totalPoints ?? 0);
+      if (cached && isDefaultView) {
+        // Instant restore from cache — no spinner
+        setUserPoints(cached.userPoints);
+        setCategories(cached.categories);
+        setListings(cached.listings);
+        setHasMore(cached.hasMore);
+        setOffset(cached.listings.length);
+        setLoading(false);
+        activeFetchParamsRef.current = {};
 
-          if (catsRes.status === 'fulfilled') {
-            const raw = catsRes.value;
-            const cats = Array.isArray(raw) ? raw : (raw as { categories: ApiCategory[] }).categories ?? [];
-            setCategories(cats);
-          }
-
-          if (listRes.status === 'fulfilled') {
-            setListings(listRes.value.listings ?? []);
-          }
-        } catch {
-          // keep defaults
-        } finally {
-          setLoading(false);
+        if (!marketplaceStore.isFresh() && !fetchingRef.current) {
+          fetchFirstPage({}, false); // silent background refresh
         }
-      })();
-    }, []),
+      } else if (!fetchingRef.current) {
+        // Filters active or no cache — fetch with current filter state
+        const cat = categories.find((c) => c.slug === activeCategory);
+        fetchFirstPage({
+          q: searchQuery || undefined,
+          categoryId: activeCategory !== 'all' ? cat?.id : undefined,
+          backendSort: toBackendSort(sortBy),
+        });
+      }
+    }, [fetchFirstPage, activeCategory, searchQuery, sortBy, categories]),
   );
 
-  let filtered = listings.filter((p) => {
-    const matchSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchCat    = activeCategory === 'all' || p.category?.slug === activeCategory;
-    return matchSearch && matchCat;
-  });
+  // Re-fetch from page 1 when category changes
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    const cat = categories.find((c) => c.slug === activeCategory);
+    setListings([]); setOffset(0); setHasMore(true);
+    fetchFirstPage({
+      q: searchQuery || undefined,
+      categoryId: activeCategory !== 'all' ? cat?.id : undefined,
+      backendSort: toBackendSort(sortBy),
+    });
+  }, [activeCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  filtered = [...filtered].sort((a, b) => {
-    if (sortBy === 'points') return (a.pointsPrice ?? 0) - (b.pointsPrice ?? 0);
-    if (sortBy === 'distance') return 0; // distance not available from API
-    return 0; // popular: keep server order
-  });
+  // Re-fetch from page 1 when sort changes
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    const cat = categories.find((c) => c.slug === activeCategory);
+    setListings([]); setOffset(0); setHasMore(true);
+    fetchFirstPage({
+      q: searchQuery || undefined,
+      categoryId: activeCategory !== 'all' ? cat?.id : undefined,
+      backendSort: toBackendSort(sortBy),
+    });
+  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced re-fetch when search text changes
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      const cat = categories.find((c) => c.slug === activeCategory);
+      setListings([]); setOffset(0); setHasMore(true);
+      fetchFirstPage({
+        q: searchQuery || undefined,
+        categoryId: activeCategory !== 'all' ? cat?.id : undefined,
+        backendSort: toBackendSort(sortBy),
+      });
+    }, 400);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || fetchingRef.current) return;
+    fetchingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const params = activeFetchParamsRef.current;
+      const qp = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (params.q) qp.set('q', params.q);
+      if (params.categoryId) qp.set('categoryId', params.categoryId);
+      if (params.backendSort) qp.set('sort', params.backendSort);
+
+      const res = await api.get<{ listings: ApiListing[]; total: number; hasMore: boolean }>(
+        `/api/marketplace/listings?${qp.toString()}`
+      );
+      const newListings = res?.listings ?? [];
+      const total       = res?.total ?? 0;
+      const more        = res?.hasMore ?? false;
+
+      setListings((prev) => {
+        const seen = new Set(prev.map((l) => l.id));
+        return [...prev, ...newListings.filter((l) => !seen.has(l.id))];
+      });
+      setHasMore(more);
+      setOffset((prev) => prev + newListings.length);
+
+      // Keep the store in sync for the unfiltered view
+      if (!params.q && !params.categoryId && !params.backendSort) {
+        marketplaceStore.appendListings(newListings, total);
+      }
+    } catch {
+      // keep current state
+    } finally {
+      setLoadingMore(false);
+      fetchingRef.current = false;
+    }
+  }, [loadingMore, hasMore, offset]);
+
+  // Filtering and sorting are now handled server-side via fetchFirstPage params.
+  const filtered = listings;
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+      scrollEventThrottle={400}
+      onScroll={({ nativeEvent }) => {
+        const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+        if (
+          contentSize.height - layoutMeasurement.height - contentOffset.y < 300 &&
+          hasMore &&
+          !loadingMore &&
+          !fetchingRef.current
+        ) {
+          loadMore();
+        }
+      }}
+    >
 
       {/* ── Header ── */}
       <LinearGradient
@@ -342,6 +487,17 @@ export default function MarketplaceScreen() {
               </TouchableOpacity>
             );
           })}
+        </View>
+      )}
+
+      {/* ── Infinite scroll footer ── */}
+      {!loading && listings.length > 0 && (
+        <View style={styles.loadMoreRow}>
+          {loadingMore ? (
+            <ActivityIndicator color={Colors.emerald600} size="small" />
+          ) : !hasMore ? (
+            <Text style={styles.allLoadedText}>All products loaded</Text>
+          ) : null}
         </View>
       )}
 
@@ -680,6 +836,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ── Load More ──
+  loadMoreRow: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: H_PAD,
+  },
+  loadMoreBtn: {
+    backgroundColor: Colors.emerald600,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: BorderRadius.xl,
+    minWidth: 140,
+    alignItems: 'center',
+    ...Shadow.md,
+  },
+  loadMoreText: {
+    color: Colors.white,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  allLoadedText: {
+    color: Colors.gray400,
+    fontSize: FontSize.sm,
   },
 
   // ── Empty State ──

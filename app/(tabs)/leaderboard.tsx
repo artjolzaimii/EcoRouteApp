@@ -1,5 +1,6 @@
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
+import { leaderboardStore, LeaderEntry, LeaderboardData } from '@/lib/leaderboardStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
@@ -16,25 +17,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface LeaderEntry {
-  profileId: string;
-  rank: number;
-  fullName: string;
-  avatarUrl: string | null;
-  totalPoints: number;
-  totalTrips: number;
-  totalCo2SavedG: number;
-  isMe: boolean;
-}
-
-interface LeaderboardData {
-  entries: LeaderEntry[];
-  me: LeaderEntry | null;
-  total: number;
-}
 
 // ─── Tier System ─────────────────────────────────────────────────────────────
 
@@ -372,49 +354,65 @@ export default function LeaderboardScreen() {
   const [scope, setScope] = useState<'regional' | 'global'>('regional');
   const [activeSection, setActiveSection] = useState<'board' | 'tiers' | 'hall'>('board');
 
-  const [data, setData] = useState<LeaderboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  // Initialise instantly from cache if available
+  const initialCache = leaderboardStore.get();
+  const [data, setData]       = useState<LeaderboardData | null>(initialCache?.data ?? null);
+  const [loading, setLoading] = useState(!initialCache);
+  const [error, setError]     = useState(false);
 
   // Tracks last-known ranks so we can show +/- deltas on re-focus
   const prevRanksRef = useRef<Record<string, number>>({});
   const [deltaMap, setDeltaMap] = useState<Record<string, number>>({});
 
+  const applyResult = useCallback((result: LeaderboardData) => {
+    const prev = prevRanksRef.current;
+    const newDeltas: Record<string, number> = {};
+    const allEntries = result.me ? [...result.entries, result.me] : result.entries;
+
+    allEntries.forEach((e) => {
+      if (prev[e.profileId] !== undefined) {
+        newDeltas[e.profileId] = prev[e.profileId] - e.rank;
+      }
+    });
+
+    const newRankMap: Record<string, number> = {};
+    allEntries.forEach((e) => { newRankMap[e.profileId] = e.rank; });
+    prevRanksRef.current = newRankMap;
+
+    setDeltaMap(newDeltas);
+    setData(result);
+    leaderboardStore.set(result);
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       setError(false);
       const result = await api.get<LeaderboardData>('/api/leaderboard?limit=50');
-
-      // Compute deltas against previously stored ranks
-      const prev = prevRanksRef.current;
-      const newDeltas: Record<string, number> = {};
-      const allEntries = result.me ? [...result.entries, result.me] : result.entries;
-
-      allEntries.forEach((e) => {
-        if (prev[e.profileId] !== undefined) {
-          newDeltas[e.profileId] = prev[e.profileId] - e.rank; // positive = climbed
-        }
-      });
-
-      // Persist current ranks for next refresh
-      const newRankMap: Record<string, number> = {};
-      allEntries.forEach((e) => { newRankMap[e.profileId] = e.rank; });
-      prevRanksRef.current = newRankMap;
-
-      setDeltaMap(newDeltas);
-      setData(result);
+      applyResult(result);
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyResult]);
 
-  // Reload every time the tab gains focus so ranks stay fresh
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      loadData();
+      const cached = leaderboardStore.get();
+
+      if (cached) {
+        // Show cached data immediately — no spinner
+        setData(cached.data);
+        setLoading(false);
+
+        // Refresh in background only if cache is stale (> 2 min)
+        if (!leaderboardStore.isFresh()) {
+          loadData();
+        }
+      } else {
+        setLoading(true);
+        loadData();
+      }
     }, [loadData]),
   );
 

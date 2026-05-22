@@ -1,5 +1,6 @@
 import { Colors, Shadow } from '@/constants/theme';
 import { api } from '@/lib/api';
+import { forumStore, ForumPost, ForumSort } from '@/lib/forumStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
@@ -16,21 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ForumPost {
-  id: string;
-  profileId: string;
-  authorName: string;
-  title: string;
-  body: string | null;
-  imageUrl: string | null;
-  likeCount: number;
-  commentCount: number;
-  createdAt: string;
-}
-
-type SortOption = 'comments' | 'likes' | 'newest';
+type SortOption = ForumSort;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,44 +33,80 @@ function formatAge(iso: string): string {
 
 export default function ForumScreen() {
   const insets = useSafeAreaInsets();
-  const [posts, setPosts] = useState<ForumPost[]>([]);
-  const [sort, setSort] = useState<SortOption>('comments');
-  const [loading, setLoading] = useState(true);
+
+  // Initialise from cache so the list is instant on return
+  const initial = forumStore.get();
+  const [posts, setPosts]           = useState<ForumPost[]>(initial?.posts ?? []);
+  const [sort, setSort]             = useState<SortOption>(initial?.sort ?? 'comments');
+  const [loading, setLoading]       = useState(!initial);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [hasMore, setHasMore] = useState(true);
-  const sortRef = useRef<SortOption>('comments');
+  const [cursor, setCursor]         = useState<string | undefined>(initial?.cursor);
+  const [hasMore, setHasMore]       = useState(initial?.hasMore ?? true);
+  const sortRef = useRef<SortOption>(initial?.sort ?? 'comments');
+  // Guard against duplicate in-flight loads
+  const fetchingRef = useRef(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadPosts('comments', true);
-    }, []),
-  );
-
-  const loadPosts = async (s: SortOption, reset = false) => {
+  const loadPosts = useCallback(async (s: SortOption, reset = false, showSpinner = true) => {
     if (reset) {
-      setLoading(true);
+      if (showSpinner) setLoading(true);
       setCursor(undefined);
       setHasMore(true);
       sortRef.current = s;
       setSort(s);
     } else {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
       setLoadingMore(true);
     }
     try {
       const cursorParam = reset ? '' : cursor ? `&cursor=${cursor}` : '';
       const data = await api.get<ForumPost[]>(`/api/forums?sort=${s}${cursorParam}`);
       const list = data ?? [];
-      setPosts(reset ? list : (prev) => [...prev, ...list]);
-      if (list.length > 0) setCursor(list[list.length - 1].id);
-      if (list.length < 20) setHasMore(false);
+      const newCursor = list.length > 0 ? list[list.length - 1].id : undefined;
+      const more = list.length >= 20;
+
+      if (reset) {
+        setPosts(list);
+        setCursor(newCursor);
+        forumStore.set(list, newCursor, more, s);
+      } else {
+        setPosts((prev) => [...prev, ...list]);
+        if (newCursor) setCursor(newCursor);
+        forumStore.append(list, newCursor, more);
+      }
+
+      if (!more) setHasMore(false);
     } catch {
       // silent fail
     } finally {
       setLoading(false);
       setLoadingMore(false);
+      fetchingRef.current = false;
     }
-  };
+  }, [cursor]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const cached = forumStore.get();
+      const currentSort = sortRef.current;
+
+      if (cached && cached.sort === currentSort) {
+        setPosts(cached.posts);
+        setCursor(cached.cursor);
+        setHasMore(cached.hasMore);
+        setSort(currentSort);
+        setLoading(false);
+
+        if (!forumStore.isFresh() && !fetchingRef.current) {
+          fetchingRef.current = true;
+          loadPosts(currentSort, true, false);
+        }
+      } else if (!fetchingRef.current) {
+        fetchingRef.current = true;
+        loadPosts(currentSort, true, true);
+      }
+    }, [loadPosts]),
+  );
 
   const SORT_OPTIONS: { key: SortOption; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
     { key: 'comments', label: 'Most Commented', icon: 'chatbubble-outline' },
@@ -160,7 +183,12 @@ export default function ForumScreen() {
             <TouchableOpacity
               key={opt.key}
               style={[styles.sortChip, sort === opt.key && styles.sortChipActive]}
-              onPress={() => { if (sort !== opt.key) loadPosts(opt.key, true); }}
+              onPress={() => {
+                if (sort !== opt.key && !fetchingRef.current) {
+                  fetchingRef.current = true;
+                  loadPosts(opt.key, true);
+                }
+              }}
               activeOpacity={0.8}
             >
               <Ionicons name={opt.icon} size={13} color={sort === opt.key ? Colors.emerald700 : 'rgba(255,255,255,0.75)'} />
