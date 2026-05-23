@@ -32,7 +32,8 @@ module.exports = ({ config }) => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    package: 'com.anonymous.EcoRouteApp',
+    package: 'com.ecoroute.app',
+    googleServicesFile: "./google-services.json",
     config: {
       googleMaps: {
         apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
@@ -43,9 +44,20 @@ module.exports = ({ config }) => ({
     output: 'static',
     favicon: './assets/images/favicon.png',
   },
+  extra: {
+    eas: {
+      projectId: '44d4ba2f-3d26-42a8-9b54-aeac5f16c304',
+    },
+  },
   plugins: [
     'expo-web-browser',
     'expo-router',
+    [
+      'expo-notifications',
+      {
+        color: '#10B981',
+      },
+    ],
     [
       'expo-image-picker',
       {

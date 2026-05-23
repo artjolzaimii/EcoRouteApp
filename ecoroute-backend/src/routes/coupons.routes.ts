@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody } from "../middleware/validate.middleware";
 import { redeemPoints } from "../services/points.service";
 import { recordCouponIssued, recordCouponRedeemed } from "../services/partners.service";
+import { createNotification } from "../services/notification.service";
 import { generateCouponCode } from "../utils/helpers";
 import { cacheGet, cacheSet, cacheDel } from "../services/cache.service";
 
@@ -144,14 +145,12 @@ router.post(
       await recordCouponRedeemed(coupon.partnerId);
 
       // Notify user
-      await prisma.notification.create({
-        data: {
-          profileId,
-          title: "Coupon Redeemed!",
-          body: `Your coupon for ${coupon.partner.name} is ready. Code: ${userCoupon.code}`,
-          refType: "coupon",
-          refId: userCoupon.id,
-        },
+      await createNotification({
+        profileId,
+        title: "Coupon Redeemed!",
+        body: `Your coupon for ${coupon.partner.name} is ready. Code: ${userCoupon.code}`,
+        refType: "coupon",
+        refId: userCoupon.id,
       });
 
       res.status(201).json({

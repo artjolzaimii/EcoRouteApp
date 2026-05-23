@@ -8,6 +8,7 @@ import { calculateCarbon, calculateGreenPoints } from "../services/carbon.servic
 import { getMultipliers } from "../services/settingsCache";
 import { awardPoints, updateStreak, checkAndAwardBadges } from "../services/points.service";
 import { updateUserWeights } from "../services/weightLearning.service";
+import { createNotification } from "../services/notification.service";
 
 const router = Router();
 
@@ -128,14 +129,12 @@ router.post(
       const newBadges = await checkAndAwardBadges(profileId);
 
       // Notify user about points earned
-      await prisma.notification.create({
-        data: {
-          profileId,
-          title: "Trip Completed!",
-          body: `You earned ${greenPoints} green points and saved ${co2SavedG}g of CO₂.`,
-          refType: "trip",
-          refId: trip.id,
-        },
+      await createNotification({
+        profileId,
+        title: "Trip Completed!",
+        body: `You earned ${greenPoints} green points and saved ${co2SavedG}g of CO₂.`,
+        refType: "trip",
+        refId: trip.id,
       });
 
       // ── Increment challenge progress ──────────────────────────────────────
@@ -193,14 +192,12 @@ router.post(
             `Challenge completed: ${challenge.title}`,
             challenge.id
           );
-          await prisma.notification.create({
-            data: {
-              profileId,
-              title: "Challenge Complete! 🎉",
-              body: `You completed "${challenge.title}" and earned ${challenge.rewardPoints} bonus points!`,
-              refType: "challenge",
-              refId: challenge.id,
-            },
+          await createNotification({
+            profileId,
+            title: "Challenge Complete! 🎉",
+            body: `You completed "${challenge.title}" and earned ${challenge.rewardPoints} bonus points!`,
+            refType: "challenge",
+            refId: challenge.id,
           });
         }
       }

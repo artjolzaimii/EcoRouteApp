@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma";
 import { EarnType, PointsLedgerType } from "@prisma/client";
 import { StreakResult } from "../types";
+import { createNotification } from "./notification.service";
 
 /**
  * Award points to a user. Appends a row to points_ledger, updates user_stats.
@@ -193,15 +194,13 @@ export async function checkAndAwardBadges(profileId: string): Promise<string[]> 
         );
       }
 
-      // Create notification
-      await prisma.notification.create({
-        data: {
-          profileId,
-          title: "Badge Earned!",
-          body: `You earned the "${badge.name}" badge!`,
-          refType: "badge",
-          refId: badge.id,
-        },
+      // Create notification + push
+      await createNotification({
+        profileId,
+        title: "Badge Earned!",
+        body: `You earned the "${badge.name}" badge!`,
+        refType: "badge",
+        refId: badge.id,
       });
     }
   }

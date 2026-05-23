@@ -96,6 +96,31 @@ router.get(
   }
 );
 
+// ─── POST /api/user/push-token ────────────────────────────────────────────────
+// Saves/updates the Expo push token for the authenticated user.
+
+const PushTokenSchema = z.object({
+  token: z.string().min(1).max(200),
+});
+
+router.post(
+  "/push-token",
+  requireAuth,
+  validateBody(PushTokenSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { token } = req.body as z.infer<typeof PushTokenSchema>;
+      await prisma.profile.update({
+        where: { id: req.user!.profileId },
+        data: { expoPushToken: token },
+      });
+      res.json({ success: true, data: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ─── DELETE /api/user/account ─────────────────────────────────────────────────
 // Permanently deletes all user data then removes the Supabase auth account.
 

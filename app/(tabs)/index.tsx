@@ -14,10 +14,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,8 +22,6 @@ import {
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Try to get location — graceful if expo-location not installed
 async function tryGetCurrentLocation(): Promise<{ lat: number; lng: number } | null> {
@@ -51,40 +45,6 @@ type Challenge = {
   progress: number;
   completed: boolean;
 };
-
-type EcoPartner = {
-  id: string;
-  name: string;
-  logo: string;
-  offer: string;
-  distance: string;
-  description: string;
-  points: number;
-};
-
-const CATEGORY_EMOJI: Record<string, string> = {
-  FOOD: '☕', TRANSPORT: '🚴', FITNESS: '🏋️', WELLNESS: '🌿',
-  RETAIL: '🛍️', ENTERTAINMENT: '🎭', OTHER: '🏪',
-};
-
-const FALLBACK_PARTNERS: EcoPartner[] = [
-  { id: 'static-1', name: 'Green Coffee Co.', logo: '☕', offer: 'Free coffee', distance: '120m away', description: 'Organic fair-trade coffee shop using 100% renewable energy', points: 50 },
-  { id: 'static-2', name: 'EcoRide Bike Shop', logo: '🚴', offer: '10% off repairs', distance: 'On your route', description: 'Local bike shop offering repairs and eco-friendly gear', points: 75 },
-];
-
-function mapApiPartner(p: any, index: number): EcoPartner {
-  const distM: number = p.distanceM ?? 0;
-  const distStr = distM < 1000 ? `${distM}m away` : `${(distM / 1000).toFixed(1)} km away`;
-  return {
-    id: p.id ?? `api-${index}`,
-    name: p.name,
-    logo: CATEGORY_EMOJI[p.category as string] ?? '🏪',
-    offer: p.activeCoupon?.title ?? 'Eco-certified partner',
-    distance: distStr,
-    description: p.address ?? p.category ?? 'Visit to earn green points',
-    points: p.pointsPerVisit ?? 0,
-  };
-}
 
 // Default region — will be replaced by user's real location
 const DEFAULT_REGION = {
@@ -119,14 +79,6 @@ export default function HomeScreen() {
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
-
-  const [selectedPartner, setSelectedPartner] = useState<EcoPartner | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-
-  // Partners — loaded from API once location is known; falls back to static list
-  const [partners, setPartners] = useState<EcoPartner[]>(FALLBACK_PARTNERS);
-  const [partnersLoading, setPartnersLoading] = useState(false);
 
   // Active challenges preview — init from cache for instant display
   const [challenges, setChallenges] = useState<Challenge[]>(
@@ -218,42 +170,10 @@ export default function HomeScreen() {
         setMapRegion(region);
         mapRef.current?.animateToRegion(region, 600);
 
-        // Load nearby partners for current location (non-blocking)
-        loadNearbyPartners(loc.lat, loc.lng);
       }
     } finally {
       setLoadingLocation(false);
     }
-  };
-
-  const loadNearbyPartners = async (lat: number, lng: number) => {
-    setPartnersLoading(true);
-    try {
-      const data = await api.get<{ partners: any[]; count: number }>(
-        `/api/partners/nearby?lat=${lat}&lng=${lng}&radiusMeters=2000`
-      );
-      if (data?.partners && data.partners.length > 0) {
-        setPartners(data.partners.map(mapApiPartner));
-      }
-      // If empty, keep the fallback list
-    } catch {
-      // API unavailable — fallback list stays
-    } finally {
-      setPartnersLoading(false);
-    }
-  };
-
-  const openPartnerSheet = (partner: EcoPartner) => {
-    setSelectedPartner(partner);
-    setModalVisible(true);
-    Animated.spring(sheetAnim, { toValue: 0, damping: 30, stiffness: 300, useNativeDriver: true }).start();
-  };
-
-  const closeSheet = () => {
-    Animated.timing(sheetAnim, { toValue: SCREEN_HEIGHT, duration: 280, useNativeDriver: true }).start(() => {
-      setModalVisible(false);
-      setSelectedPartner(null);
-    });
   };
 
   const handleFindRoute = async () => {
@@ -544,90 +464,8 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ── Eco Partners ── */}
-        <View style={styles.section}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.sectionTitle}>Eco Partners on Route</Text>
-            {partnersLoading && <ActivityIndicator size="small" color={Colors.emerald600} />}
-          </View>
-          <View style={styles.partnerListWrap}>
-            {partners.map((partner) => (
-              <TouchableOpacity
-                key={partner.id}
-                style={styles.partnerCard}
-                activeOpacity={0.85}
-                onPress={() => openPartnerSheet(partner)}
-              >
-                <Text style={styles.partnerLogo}>{partner.logo}</Text>
-                <View style={styles.partnerInfo}>
-                  <Text style={styles.partnerName}>{partner.name}</Text>
-                  <Text style={styles.partnerOffer}>{partner.offer}</Text>
-                  <View style={styles.partnerDistRow}>
-                    <Ionicons name="location-outline" size={12} color={Colors.gray400} />
-                    <Text style={styles.partnerDist}>{partner.distance}</Text>
-                  </View>
-                </View>
-                <View style={styles.partnerPointsBadge}>
-                  <Ionicons name="flash-outline" size={12} color={Colors.emerald600} />
-                  <Text style={styles.partnerPointsText}>+{partner.points}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
         <View style={{ height: 24 }} />
       </ScrollView>
-
-      {/* ── Eco Partner Bottom Sheet ── */}
-      <Modal visible={modalVisible} transparent animationType="none" onRequestClose={closeSheet}>
-        <View style={styles.modalContainer}>
-          <Pressable style={styles.backdrop} onPress={closeSheet} />
-          <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetAnim }] }]}>
-            <View style={styles.sheetHandle} />
-            {selectedPartner && (
-              <View style={styles.sheetBody}>
-                <View style={styles.rowEnd}>
-                  <TouchableOpacity style={styles.closeBtn} onPress={closeSheet}>
-                    <Ionicons name="close-outline" size={20} color={Colors.gray600} />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.partnerRow}>
-                  <View style={styles.partnerLogoBox}>
-                    <Text style={styles.partnerLogoText}>{selectedPartner.logo}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.ecoLabel}>Eco-Partner</Text>
-                    <Text style={styles.partnerModalName}>{selectedPartner.name}</Text>
-                    <Text style={styles.partnerModalDist}>{selectedPartner.distance}</Text>
-                  </View>
-                </View>
-                <View style={styles.offerBox}>
-                  <View style={styles.offerTitleRow}>
-                    <Ionicons name="gift-outline" size={20} color={Colors.emerald600} />
-                    <Text style={styles.offerTitleText}>{selectedPartner.offer}</Text>
-                  </View>
-                  <Text style={styles.offerDesc}>{selectedPartner.description}</Text>
-                </View>
-                <LinearGradient colors={[Colors.emerald50, '#eff6ff']} style={styles.pointsRow}>
-                  <Ionicons name="flash-outline" size={20} color={Colors.emerald600} />
-                  <View>
-                    <Text style={styles.pointsTitle}>Earn +{selectedPartner.points} points</Text>
-                    <Text style={styles.pointsSub}>When you visit on this route</Text>
-                  </View>
-                </LinearGradient>
-                <TouchableOpacity
-                  style={styles.earnBtn}
-                  activeOpacity={0.9}
-                  onPress={() => { closeSheet(); router.push('/search'); }}
-                >
-                  <Text style={styles.earnBtnText}>Find routes passing here</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </Animated.View>
-        </View>
-      </Modal>
     </>
   );
 }
@@ -723,61 +561,10 @@ const styles = StyleSheet.create({
   challengeFill: { height: '100%', backgroundColor: Colors.emerald600, borderRadius: 3 },
   challengeDesc: { color: Colors.gray500, fontSize: 11 },
 
-  // Partners section
+  // Challenges header row / section titles
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle: { color: Colors.gray900, fontWeight: '700', fontSize: 17 },
-  partnerListWrap: { gap: 12 },
-  partnerCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    ...Shadow.sm,
-  },
-  partnerLogo: { fontSize: 32, width: 48, textAlign: 'center' },
-  partnerInfo: { flex: 1 },
-  partnerName: { color: Colors.gray900, fontWeight: '600', fontSize: 15, marginBottom: 2 },
-  partnerOffer: { color: Colors.emerald600, fontSize: 13, fontWeight: '500', marginBottom: 4 },
-  partnerDistRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  partnerDist: { color: Colors.gray400, fontSize: 12 },
-  partnerPointsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.emerald50,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.emerald100,
-  },
-  partnerPointsText: { color: Colors.emerald600, fontWeight: '700', fontSize: 13 },
 
-  // Modal
-  modalContainer: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: Colors.black40 },
-  sheet: { backgroundColor: Colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, ...Shadow.xl },
-  sheetHandle: { width: 40, height: 4, backgroundColor: Colors.gray300, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
-  sheetBody: { paddingHorizontal: 24, paddingBottom: 40 },
-  rowEnd: { alignItems: 'flex-end', marginBottom: 8 },
-  closeBtn: { width: 32, height: 32, backgroundColor: Colors.gray100, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  partnerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 16 },
-  partnerLogoBox: { width: 64, height: 64, backgroundColor: Colors.emerald100, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  partnerLogoText: { fontSize: 28 },
-  ecoLabel: { color: Colors.emerald600, fontSize: 11, fontWeight: '600', marginBottom: 4 },
-  partnerModalName: { color: Colors.gray900, fontWeight: '700', fontSize: 20, marginBottom: 4 },
-  partnerModalDist: { color: Colors.gray500, fontSize: 13 },
-  offerBox: { backgroundColor: Colors.emerald50, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: Colors.emerald100, marginBottom: 12 },
-  offerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  offerTitleText: { color: Colors.emerald900, fontWeight: '700', fontSize: 17 },
-  offerDesc: { color: Colors.emerald700, fontSize: 13, lineHeight: 18 },
-  pointsRow: { borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-  pointsTitle: { color: Colors.gray900, fontWeight: '600', fontSize: 14 },
-  pointsSub: { color: Colors.gray600, fontSize: 11, marginTop: 2 },
-  earnBtn: { backgroundColor: Colors.emerald600, borderRadius: 16, paddingVertical: 16, alignItems: 'center', ...Shadow.lg },
-  earnBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
   heatmapBanner: {
     backgroundColor: Colors.emerald50,
     borderRadius: 20,

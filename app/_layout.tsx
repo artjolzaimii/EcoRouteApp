@@ -2,6 +2,16 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import * as Notifications from 'expo-notifications';
+
+// Show notifications even when the app is in the foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 // Guards tab screens — redirects to /log-in if no session
 function AuthGuard({ children }: { children: React.ReactNode }) {

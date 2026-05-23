@@ -20,7 +20,7 @@ import pinsRoutes from "./routes/pins.routes";
 import routingRoutes from "./routes/routing.routes";
 import savedRoutesRoutes from "./routes/saved-routes.routes";
 import usersRoutes from "./routes/users.routes";
-
+import notificationsRoutes from "./routes/notifications.routes";
 
 // Global error handler
 import { supabaseAdmin } from "./config/supabase";
@@ -90,6 +90,7 @@ app.use("/api/saved-routes", savedRoutesRoutes);
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/partner", partnerRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/notifications", notificationsRoutes);
 //app.use("/api/referrals", referralsRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────

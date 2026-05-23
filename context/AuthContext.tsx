@@ -2,6 +2,8 @@ import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { router } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 type SignUpResult = {
   email: string;
@@ -35,6 +37,35 @@ function getSupabaseProjectRef(): string {
 
 function getEmailRedirectTo(): string {
   return 'ecorouteapp://log-in';
+}
+
+async function registerPushToken(session: Session): Promise<void> {
+  try {
+    // Don't request permission again — only use existing grant
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+    if (!projectId) {
+      console.warn('[push] EAS projectId not configured — skipping token registration');
+      return;
+    }
+
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+
+    await fetch(`${API_BASE_URL}/api/user/push-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ token }),
+    });
+  } catch (err) {
+    // Never crash the auth flow due to push token issues
+    console.warn('[push] Push token registration failed:', (err as Error).message);
+  }
 }
 
 async function ensureProfile(session: Session): Promise<void> {
@@ -71,7 +102,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       setSession(data.session);
       setLoading(false);
-      if (data.session) ensureProfile(data.session);
+      if (data.session) {
+        ensureProfile(data.session);
+        registerPushToken(data.session);
+      }
     });
 
     // Listen for auth state changes
@@ -85,7 +119,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabaseProjectRef: getSupabaseProjectRef(),
       });
       setSession(newSession);
-      if (event === 'SIGNED_IN' && newSession) ensureProfile(newSession);
+      if (event === 'SIGNED_IN' && newSession) {
+        ensureProfile(newSession);
+        registerPushToken(newSession);
+      }
       // Deep link from password-reset email lands here as PASSWORD_RECOVERY
       if (event === 'PASSWORD_RECOVERY') router.replace('/reset-password');
     });

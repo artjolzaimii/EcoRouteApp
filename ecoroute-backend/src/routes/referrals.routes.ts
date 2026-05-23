@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateBody } from "../middleware/validate.middleware";
+import { sendPushToProfile } from "../services/push.service";
 
 const router = Router();
 
@@ -115,6 +116,14 @@ router.post(
           data: { balanceAfter: updatedStats.totalPoints },
         });
       }
+
+      // Fire push outside the transaction so a push failure never rolls back points
+      sendPushToProfile(
+        referrerProfile.id,
+        "Referral bonus!",
+        `A friend joined EcoRoute using your code. You earned ${REFERRAL_POINTS} EcoPoints!`,
+        { refType: "points" }
+      ).catch(() => {});
 
       res.json({ success: true, data: { referralId: referral.id } });
     } catch (err) {
