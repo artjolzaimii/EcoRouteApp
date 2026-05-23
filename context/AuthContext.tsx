@@ -40,21 +40,31 @@ function getEmailRedirectTo(): string {
 }
 
 async function registerPushToken(session: Session): Promise<void> {
+  // ── DIAGNOSTIC LOGS — remove after confirming token registration works ──────
+  console.log('[push] registration start');
   try {
-    // Don't request permission again — only use existing grant
     const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') return;
-
-    const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
-    if (!projectId) {
-      console.warn('[push] EAS projectId not configured — skipping token registration');
+    console.log('[push] permission status:', status);
+    if (status !== 'granted') {
+      console.log('[push] exit: permission not granted — token skipped');
       return;
     }
 
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+    console.log('[push] projectId present:', Boolean(projectId));
+    if (!projectId) {
+      console.warn('[push] exit: projectId missing from Constants.expoConfig.extra.eas — skipping');
+      return;
+    }
 
-    await fetch(`${API_BASE_URL}/api/user/push-token`, {
+    console.log('[push] calling getExpoPushTokenAsync...');
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    console.log('[push] token obtained, prefix:', token?.slice(0, 20));
+
+    const endpoint = `${API_BASE_URL}/api/user/push-token`;
+    console.log('[push] POST', endpoint);
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,9 +72,10 @@ async function registerPushToken(session: Session): Promise<void> {
       },
       body: JSON.stringify({ token }),
     });
+    console.log('[push] response status:', res.status);
   } catch (err) {
     // Never crash the auth flow due to push token issues
-    console.warn('[push] Push token registration failed:', (err as Error).message);
+    console.warn('[push] registration failed:', (err as Error).message);
   }
 }
 

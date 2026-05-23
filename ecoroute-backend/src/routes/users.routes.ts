@@ -108,14 +108,18 @@ router.post(
   requireAuth,
   validateBody(PushTokenSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // ── DIAGNOSTIC LOG — remove after confirming token registration works ──────
+    console.log("[push] POST /api/user/push-token received, profileId:", req.user!.profileId);
     try {
       const { token } = req.body as z.infer<typeof PushTokenSchema>;
       await prisma.profile.update({
         where: { id: req.user!.profileId },
         data: { expoPushToken: token },
       });
+      console.log("[push] token saved OK, profileId:", req.user!.profileId);
       res.json({ success: true, data: null });
     } catch (err) {
+      console.error("[push] token save FAILED:", (err as Error).message);
       next(err);
     }
   }
