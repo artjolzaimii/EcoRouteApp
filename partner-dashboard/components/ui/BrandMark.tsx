@@ -1,4 +1,4 @@
-import { Icon } from './Icon'
+import Image from 'next/image'
 
 interface BrandMarkProps {
   size?: number
@@ -7,10 +7,25 @@ interface BrandMarkProps {
 export function BrandMark({ size = 36 }: BrandMarkProps) {
   return (
     <div
-      className="brand-mark"
-      style={{ width: size, height: size, borderRadius: size * 0.34 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.34,
+        overflow: 'hidden',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
-      <Icon name="leaf" size={size * 0.55} />
+      <Image
+        src="/ecoroute_logo.png"
+        alt="EcoRoute logo"
+        width={size}
+        height={size}
+        style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+        priority
+      />
     </div>
   )
 }

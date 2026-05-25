@@ -28,10 +28,12 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <BrandMark />
-        <div style={{ minWidth: 0 }}>
-          <div className="brand-name">EcoRoute</div>
-          <div className="brand-sub">Partner Portal</div>
+        <div className="brand-card">
+          <BrandMark size={38} />
+          <div style={{ minWidth: 0 }}>
+            <div className="brand-name">EcoRoute</div>
+            <div className="brand-sub">Partner Portal</div>
+          </div>
         </div>
       </div>
 

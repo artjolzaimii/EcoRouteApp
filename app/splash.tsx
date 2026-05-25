@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const DARK_GREEN = '#1A5C38';
 
@@ -66,7 +66,7 @@ export default function SplashScreen() {
 
       {/* Logo */}
       <Animated.View style={[styles.logoBox, { transform: [{ scale: scaleAnim }], opacity: opacityAnim }]}>
-        <Ionicons name="leaf" size={80} color={Colors.white} strokeWidth={1.5} />
+        <BrandLogo size={88} />
       </Animated.View>
 
       {/* Brand Name */}

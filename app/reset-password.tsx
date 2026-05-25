@@ -9,6 +9,8 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,23 +20,23 @@ import { Colors, Shadow } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 
 const CREAM = '#F1EFE8';
-const ECO_GREEN = Colors.emerald600;
+const GREEN = Colors.emerald600;
 
 export default function ResetPasswordScreen() {
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(22)).current;
 
-  const [password, setPassword] = useState('');
+  const [password,        setPassword]        = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+  const [loading,         setLoading]         = useState(false);
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 480, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 480, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -51,19 +53,16 @@ export default function ResetPasswordScreen() {
       Alert.alert('Password mismatch', 'Passwords do not match.');
       return;
     }
-
     setLoading(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
         console.warn('[auth/reset-password] updateUser failed', {
-          message: error.message,
-          status: error.status,
+          message: error.message, status: error.status,
         });
         Alert.alert('Failed to reset password', error.message);
         return;
       }
-
       console.log('[auth/reset-password] password updated successfully');
       Alert.alert('Password updated', 'Your password has been reset. Please log in.', [
         { text: 'OK', onPress: () => router.replace('/log-in') },
@@ -74,122 +73,159 @@ export default function ResetPasswordScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar style="dark" />
 
-      <View style={styles.content}>
-        <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      {/* Decorative leaf */}
+      <View style={styles.leafTL} pointerEvents="none">
+        <Ionicons name="leaf" size={180} color="rgba(5,150,105,0.045)" />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+
+          {/* Icon */}
           <View style={styles.iconWrap}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="lock-closed-outline" size={40} color={ECO_GREEN} />
+            <View style={styles.iconOuter}>
+              <View style={styles.iconInner}>
+                <Ionicons name="lock-closed-outline" size={28} color={Colors.white} />
+              </View>
             </View>
           </View>
 
           <Text style={styles.title}>Set new password</Text>
-          <Text style={styles.subtitle}>Enter your new password below</Text>
+          <Text style={styles.subtitle}>Enter your new password below.</Text>
 
-          <View style={styles.fieldWrap}>
-            <Text style={styles.label}>New Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="••••••••"
-                placeholderTextColor={Colors.gray400}
-                secureTextEntry={!showPassword}
-                returnKeyType="next"
-                value={password}
-                onChangeText={setPassword}
-                editable={!loading}
-              />
-              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
-              </TouchableOpacity>
+          {/* Card */}
+          <View style={styles.card}>
+            {/* New password */}
+            <View style={styles.inputGroup}>
+              <View style={styles.inputWrap}>
+                <Ionicons name="lock-closed-outline" size={17} color={Colors.gray400} style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { paddingRight: 40 }]}
+                  placeholder="new password"
+                  placeholderTextColor={Colors.gray400}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="next"
+                  value={password}
+                  onChangeText={setPassword}
+                  editable={!loading}
+                />
+                <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(v => !v)}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={Colors.gray400} />
+                </TouchableOpacity>
+              </View>
             </View>
+
+            {/* Confirm password */}
+            <View style={[styles.inputGroup, { marginBottom: 20 }]}>
+              <View style={styles.inputWrap}>
+                <Ionicons name="lock-closed-outline" size={17} color={Colors.gray400} style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { paddingRight: 40 }]}
+                  placeholder="confirm password"
+                  placeholderTextColor={Colors.gray400}
+                  secureTextEntry={!showConfirm}
+                  returnKeyType="done"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  onSubmitEditing={handleReset}
+                  editable={!loading}
+                />
+                <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(v => !v)}>
+                  <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={18} color={Colors.gray400} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+              onPress={handleReset}
+              activeOpacity={0.88}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator color={Colors.white} />
+                : <Text style={styles.primaryBtnText}>Update Password</Text>
+              }
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.fieldWrap}>
-            <Text style={styles.label}>Confirm Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="••••••••"
-                placeholderTextColor={Colors.gray400}
-                secureTextEntry={!showConfirm}
-                returnKeyType="done"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                onSubmitEditing={handleReset}
-                editable={!loading}
-              />
-              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(!showConfirm)}>
-                <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.gray400} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-            onPress={handleReset}
-            activeOpacity={0.9}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={Colors.white} />
-            ) : (
-              <Text style={styles.submitBtnText}>Update Password</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.backToLoginBtn} onPress={() => router.replace('/log-in')}>
+          <TouchableOpacity style={styles.backToLogin} onPress={() => router.replace('/log-in')}>
             <Text style={styles.backToLoginText}>Back to login</Text>
           </TouchableOpacity>
+
         </Animated.View>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: CREAM },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingBottom: 48 },
-  inner: { width: '100%' },
-  iconWrap: { alignItems: 'center', marginBottom: 32 },
-  iconCircle: {
-    width: 80,
-    height: 80,
+  root:   { flex: 1, backgroundColor: CREAM },
+  leafTL: { position: 'absolute', top: -40, left: -50, transform: [{ rotate: '25deg' }] },
+  scroll: { paddingHorizontal: 24 },
+
+  iconWrap:  { alignItems: 'center', marginBottom: 24 },
+  iconOuter: {
+    width: 80, height: 80,
     backgroundColor: Colors.emerald50,
     borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  title: { color: '#1A1A1A', fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
-  subtitle: { color: Colors.gray600, fontSize: 15, textAlign: 'center', marginBottom: 32, lineHeight: 22 },
-  fieldWrap: { marginBottom: 16 },
-  label: { color: Colors.gray700, fontSize: 14, fontWeight: '500', marginBottom: 8 },
-  input: {
+  iconInner: {
+    width: 52, height: 52,
+    backgroundColor: GREEN,
+    borderRadius: 26,
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  title:    { fontSize: 24, fontWeight: '700', color: '#111', textAlign: 'center', marginBottom: 8 },
+  subtitle: { fontSize: 15, color: Colors.gray500, textAlign: 'center', marginBottom: 28 },
+
+  card: {
     backgroundColor: Colors.white,
-    borderRadius: 12,
+    borderRadius: 24,
+    padding: 20,
+    ...Shadow.lg,
+    marginBottom: 20,
+  },
+  inputGroup: { marginBottom: 12 },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.gray50,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.gray200,
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    color: '#1A1A1A',
-    fontSize: 15,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 13 : 9,
   },
-  passwordWrap: { position: 'relative' },
-  passwordInput: { paddingRight: 48 },
-  eyeBtn: { position: 'absolute', right: 14, top: 0, bottom: 0, justifyContent: 'center' },
-  submitBtn: {
-    backgroundColor: ECO_GREEN,
-    borderRadius: 20,
-    paddingVertical: 16,
+  inputIcon: { marginRight: 10 },
+  input:     { flex: 1, fontSize: 15, color: '#111' },
+  eyeBtn:    { position: 'absolute', right: 12, top: 0, bottom: 0, justifyContent: 'center' },
+
+  primaryBtn: {
+    backgroundColor: GREEN,
+    borderRadius: 16,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 16,
     ...Shadow.md,
   },
-  submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
-  backToLoginBtn: { alignItems: 'center' },
-  backToLoginText: { color: ECO_GREEN, fontWeight: '600', fontSize: 14 },
+  primaryBtnDisabled: { opacity: 0.65 },
+  primaryBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
+
+  backToLogin:     { alignItems: 'center', paddingVertical: 8 },
+  backToLoginText: { color: GREEN, fontWeight: '600', fontSize: 14 },
 });

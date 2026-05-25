@@ -1,4 +1,5 @@
 import { MoodSelector } from '@/components/MoodSelector';
+import { BrandLogo } from '@/components/BrandLogo';
 import { Colors, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { api, getEcoRoutes } from '@/lib/api';
@@ -268,7 +269,7 @@ export default function HomeScreen() {
         {/* ── Top bar: logo + name left ── */}
         <View style={styles.topBar}>
           <View style={styles.logoBadge}>
-            <Ionicons name="leaf" size={14} color={Colors.white} />
+            <BrandLogo size={18} style={{ borderRadius: 4 }} />
             <Text style={styles.logoText}>EcoRoute</Text>
           </View>
         </View>

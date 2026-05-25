@@ -9,6 +9,8 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,21 +20,21 @@ import { Colors, Shadow } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 
 const CREAM = '#F1EFE8';
-const ECO_GREEN = Colors.emerald600;
+const GREEN = Colors.emerald600;
 
 export default function ForgotPasswordScreen() {
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(22)).current;
 
-  const [email, setEmail] = useState('');
+  const [email,   setEmail]   = useState('');
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [sent,    setSent]    = useState(false);
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 480, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 480, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -42,23 +44,18 @@ export default function ForgotPasswordScreen() {
       Alert.alert('Missing email', 'Please enter your email address.');
       return;
     }
-
     setLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
         redirectTo: 'ecorouteapp://reset-password',
       });
-
       if (error) {
         console.warn('[auth/forgot-password] resetPasswordForEmail failed', {
-          email: trimmed,
-          message: error.message,
-          status: error.status,
+          email: trimmed, message: error.message, status: error.status,
         });
         Alert.alert('Failed to send reset link', error.message);
         return;
       }
-
       console.log('[auth/forgot-password] reset email sent', { email: trimmed });
       setSent(true);
     } finally {
@@ -67,38 +64,63 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar style="dark" />
 
-      <View style={styles.header}>
+      {/* Decorative leaves */}
+      <View style={styles.leafTL} pointerEvents="none">
+        <Ionicons name="leaf" size={180} color="rgba(5,150,105,0.045)" />
+      </View>
+
+      {/* Back button */}
+      <View style={[styles.backRow, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={20} color={ECO_GREEN} />
+          <Ionicons name="arrow-back-outline" size={18} color={GREEN} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <Animated.View style={[styles.inner, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+
+          {/* Icon */}
           <View style={styles.iconWrap}>
-            <View style={styles.iconCircle}>
-              <Ionicons name={sent ? 'checkmark-circle-outline' : 'mail-outline'} size={40} color={ECO_GREEN} />
+            <View style={styles.iconOuter}>
+              <View style={styles.iconInner}>
+                <Ionicons
+                  name={sent ? 'checkmark-outline' : 'mail-outline'}
+                  size={30}
+                  color={Colors.white}
+                />
+              </View>
             </View>
           </View>
 
-          <Text style={styles.title}>{sent ? 'Check your inbox' : 'Reset password'}</Text>
+          {/* Text */}
+          <Text style={styles.title}>
+            {sent ? 'Check your inbox' : 'Reset password'}
+          </Text>
           <Text style={styles.subtitle}>
             {sent
-              ? `We sent a password reset link to\n${email.trim()}\n\nOpen the link in the email to set a new password.`
-              : 'Enter your email and we will send you a reset link'}
+              ? `We sent a reset link to\n${email.trim()}\n\nOpen it to set a new password.`
+              : "Enter your email and we'll send you a reset link."}
           </Text>
 
+          {/* Form (only when not yet sent) */}
           {!sent && (
-            <>
-              <View style={styles.fieldWrap}>
-                <Text style={styles.label}>Email</Text>
+            <View style={styles.card}>
+              <View style={styles.inputWrap}>
+                <Ionicons name="mail-outline" size={17} color={Colors.gray400} style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="you@example.com"
+                  placeholder="your@email.com"
                   placeholderTextColor={Colors.gray400}
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -111,69 +133,87 @@ export default function ForgotPasswordScreen() {
               </View>
 
               <TouchableOpacity
-                style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+                style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
                 onPress={handleSendReset}
-                activeOpacity={0.9}
+                activeOpacity={0.88}
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color={Colors.white} />
-                ) : (
-                  <Text style={styles.submitBtnText}>Send Reset Link</Text>
-                )}
+                {loading
+                  ? <ActivityIndicator color={Colors.white} />
+                  : <Text style={styles.primaryBtnText}>Send Reset Link</Text>
+                }
               </TouchableOpacity>
-            </>
+            </View>
           )}
 
-          <TouchableOpacity style={styles.backToLoginBtn} onPress={() => router.replace('/log-in')}>
+          <TouchableOpacity style={styles.backToLogin} onPress={() => router.replace('/log-in')}>
             <Text style={styles.backToLoginText}>Back to login</Text>
           </TouchableOpacity>
+
         </Animated.View>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: CREAM },
-  header: { paddingHorizontal: 24, paddingVertical: 16 },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  backText: { color: ECO_GREEN, fontWeight: '600', fontSize: 16 },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingBottom: 48 },
-  inner: { width: '100%' },
-  iconWrap: { alignItems: 'center', marginBottom: 32 },
-  iconCircle: {
-    width: 80,
-    height: 80,
+  root:    { flex: 1, backgroundColor: CREAM },
+  leafTL:  { position: 'absolute', top: -40, left: -50, transform: [{ rotate: '25deg' }] },
+  backRow: { paddingHorizontal: 24, paddingBottom: 8 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  backText: { color: GREEN, fontWeight: '600', fontSize: 15 },
+  scroll:  { paddingHorizontal: 24 },
+
+  // Icon
+  iconWrap:  { alignItems: 'center', marginTop: 32, marginBottom: 24 },
+  iconOuter: {
+    width: 80, height: 80,
     backgroundColor: Colors.emerald50,
     borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  title: { color: '#1A1A1A', fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
-  subtitle: { color: Colors.gray600, fontSize: 15, textAlign: 'center', marginBottom: 32, lineHeight: 22 },
-  fieldWrap: { marginBottom: 24 },
-  label: { color: Colors.gray700, fontSize: 14, fontWeight: '500', marginBottom: 8 },
-  input: {
+  iconInner: {
+    width: 52, height: 52,
+    backgroundColor: GREEN,
+    borderRadius: 26,
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  title:    { fontSize: 24, fontWeight: '700', color: '#111', textAlign: 'center', marginBottom: 10 },
+  subtitle: { fontSize: 15, color: Colors.gray500, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+
+  // Card
+  card: {
     backgroundColor: Colors.white,
-    borderRadius: 12,
+    borderRadius: 24,
+    padding: 20,
+    ...Shadow.lg,
+    marginBottom: 20,
+  },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.gray50,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.gray200,
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    color: '#1A1A1A',
-    fontSize: 15,
-  },
-  submitBtn: {
-    backgroundColor: ECO_GREEN,
-    borderRadius: 20,
-    paddingVertical: 16,
-    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 13 : 9,
     marginBottom: 16,
+  },
+  inputIcon: { marginRight: 10 },
+  input:     { flex: 1, fontSize: 15, color: '#111' },
+
+  primaryBtn: {
+    backgroundColor: GREEN,
+    borderRadius: 16,
+    paddingVertical: 15,
+    alignItems: 'center',
     ...Shadow.md,
   },
-  submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText: { color: Colors.white, fontWeight: '700', fontSize: 17 },
-  backToLoginBtn: { alignItems: 'center' },
-  backToLoginText: { color: ECO_GREEN, fontWeight: '600', fontSize: 14 },
+  primaryBtnDisabled: { opacity: 0.65 },
+  primaryBtnText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
+
+  backToLogin:     { alignItems: 'center', paddingVertical: 8 },
+  backToLoginText: { color: GREEN, fontWeight: '600', fontSize: 14 },
 });

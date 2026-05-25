@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Icon } from '@/components/ui/Icon'
 import { signIn } from '@/lib/auth'
 
@@ -33,8 +34,15 @@ export default function LoginPage() {
       {/* Left poster */}
       <div className="auth-poster">
         <div>
-          <div className="auth-poster brand-mark">
-            <Icon name="leaf" size={24} color="#fff" />
+          <div className="auth-poster brand-mark" style={{ background: 'none', boxShadow: 'none', padding: 0, overflow: 'hidden', borderRadius: 14 }}>
+            <Image
+              src="/ecoroute_logo.png"
+              alt="EcoRoute logo"
+              width={52}
+              height={52}
+              style={{ objectFit: 'contain', display: 'block' }}
+              priority
+            />
           </div>
         </div>
 

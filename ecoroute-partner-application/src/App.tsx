@@ -2,6 +2,7 @@ import { useState } from "react";
 import StepIndicator from "./components/StepIndicator";
 import SuccessScreen from "./components/SuccessScreen";
 import MapPicker from "./components/MapPicker";
+import ecoRouteLogo from "./assets/ecoroute_logo.png";
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:3000";
 
@@ -190,11 +191,12 @@ export default function App() {
       {/* ── Header ── */}
       <header className="bg-brand text-white py-5 px-4 shadow-sm">
         <div className="max-w-lg mx-auto flex items-center gap-3">
-          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
+          <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shrink-0 bg-white/20 border-2 border-emerald-300">
+            <img
+              src={ecoRouteLogo}
+              alt="EcoRoute logo"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
           </div>
           <div>
             <p className="font-bold text-lg leading-tight">EcoRoute</p>

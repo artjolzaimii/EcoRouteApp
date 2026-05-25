@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Leaf } from 'lucide-react';
+import ecoRouteLogo from '@/assets/ecoroute_logo.png';
 import { useAuth } from '../lib/auth';
 
 export default function LoginPage() {
@@ -29,8 +29,12 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#F5F9F6] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-8">
-          <div className="w-16 h-16 bg-[#2D8653] rounded-2xl flex items-center justify-center">
-            <Leaf className="w-10 h-10 text-white" strokeWidth={2} />
+          <div className="w-16 h-16 rounded-2xl overflow-hidden">
+            <img
+              src={ecoRouteLogo}
+              alt="EcoRoute logo"
+              className="w-full h-full object-contain"
+            />
           </div>
         </div>
 

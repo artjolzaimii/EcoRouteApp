@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../lib/auth';
+import ecoRouteLogo from '@/assets/ecoroute_logo.png';
 import {
   LayoutDashboard,
   Users,
@@ -91,8 +92,12 @@ export function AdminLayout() {
       {/* Compact Sidebar - Desktop & Tablet */}
       <aside className="hidden md:block fixed left-0 top-0 h-full w-16 bg-admin-white border-r border-admin-border">
         <div className="flex flex-col h-full items-center py-6">
-          <div className="w-10 h-10 rounded-lg bg-admin-primary flex items-center justify-center text-admin-white font-bold text-sm mb-8">
-            E
+          <div className="w-10 h-10 rounded-lg overflow-hidden mb-8 flex items-center justify-center" title="EcoRoute Admin">
+            <img
+              src={ecoRouteLogo}
+              alt="EcoRoute"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
           </div>
           <nav className="flex-1 w-full">
             {navigation.map((section) =>
@@ -138,8 +143,12 @@ export function AdminLayout() {
               {/* Header */}
               <div className="p-4 border-b border-admin-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-admin-primary flex items-center justify-center text-admin-white font-bold text-sm">
-                    E
+                  <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
+                    <img
+                      src={ecoRouteLogo}
+                      alt="EcoRoute"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
                   </div>
                   <div>
                     <div className="font-semibold text-admin-charcoal">EcoRoute</div>
