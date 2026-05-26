@@ -72,10 +72,23 @@ export default function MarketplaceScreen() {
   const [listings, setListings]       = useState<ApiListing[]>(initial?.listings ?? []);
 
   // Guard against duplicate in-flight requests
-  const fetchingRef = useRef(false);
-  const isMountedRef = useRef(false);
+  const fetchingRef        = useRef(false);
+  const isMountedRef       = useRef(false);
   const activeFetchParamsRef = useRef<FetchParams>({});
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refs that mirror filter state so useFocusEffect never has stale closures
+  // without needing those values in its dependency array.
+  const filtersReadyRef    = useRef(false);   // true after first useFocusEffect run
+  const activeCategoryRef  = useRef(activeCategory);
+  const searchQueryRef     = useRef(searchQuery);
+  const sortByRef          = useRef<SortOption>(sortBy);
+  const categoriesRef      = useRef<ApiCategory[]>(initial?.categories ?? []);
+
+  useEffect(() => { activeCategoryRef.current  = activeCategory; }, [activeCategory]);
+  useEffect(() => { searchQueryRef.current     = searchQuery;    }, [searchQuery]);
+  useEffect(() => { sortByRef.current          = sortBy;         }, [sortBy]);
+  useEffect(() => { categoriesRef.current      = categories;     }, [categories]);
 
   const fetchFirstPage = useCallback(async (params: FetchParams = {}, showSpinner = true) => {
     if (fetchingRef.current) return;
@@ -83,9 +96,9 @@ export default function MarketplaceScreen() {
     if (showSpinner) setLoading(true);
     try {
       const qp = new URLSearchParams({ limit: String(PAGE_SIZE), offset: '0' });
-      if (params.q) qp.set('q', params.q);
-      if (params.categoryId) qp.set('categoryId', params.categoryId);
-      if (params.backendSort) qp.set('sort', params.backendSort);
+      if (params.q)           qp.set('q',          params.q);
+      if (params.categoryId)  qp.set('categoryId', params.categoryId);
+      if (params.backendSort) qp.set('sort',        params.backendSort);
 
       const [statsRes, catsRes, listRes] = await Promise.allSettled([
         api.get<{ totalPoints: number }>('/api/user/stats'),
@@ -113,7 +126,11 @@ export default function MarketplaceScreen() {
       }
 
       setUserPoints(pts);
-      setCategories(cats);
+      // Only update categories when doing an unfiltered fetch — avoids triggering
+      // useFocusEffect re-runs via the categories state when filters are active.
+      if (!params.categoryId && !params.q && !params.backendSort) {
+        setCategories(cats);
+      }
       setListings(newListings);
       setHasMore(more);
       setOffset(newListings.length);
@@ -131,14 +148,20 @@ export default function MarketplaceScreen() {
     }
   }, []);
 
+  // ── On screen focus: restore cache or do initial fetch ──────────────────────
+  // Deps: only fetchFirstPage (stable). Filter state is read via refs so the
+  // callback is never recreated when filters change — preventing infinite loops.
   useFocusEffect(
     useCallback(() => {
       isMountedRef.current = true;
       const cached = marketplaceStore.get();
-      const isDefaultView = activeCategory === 'all' && !searchQuery && sortBy === 'popular';
+
+      const curCategory = activeCategoryRef.current;
+      const curSearch   = searchQueryRef.current;
+      const curSort     = sortByRef.current;
+      const isDefaultView = curCategory === 'all' && !curSearch && curSort === 'popular';
 
       if (cached && isDefaultView) {
-        // Instant restore from cache — no spinner
         setUserPoints(cached.userPoints);
         setCategories(cached.categories);
         setListings(cached.listings);
@@ -148,59 +171,49 @@ export default function MarketplaceScreen() {
         activeFetchParamsRef.current = {};
 
         if (!marketplaceStore.isFresh() && !fetchingRef.current) {
-          fetchFirstPage({}, false); // silent background refresh
+          fetchFirstPage({}, false);
         }
       } else if (!fetchingRef.current) {
-        // Filters active or no cache — fetch with current filter state
-        const cat = categories.find((c) => c.slug === activeCategory);
+        const cat = categoriesRef.current.find((c) => c.slug === curCategory);
         fetchFirstPage({
-          q: searchQuery || undefined,
-          categoryId: activeCategory !== 'all' ? cat?.id : undefined,
-          backendSort: toBackendSort(sortBy),
+          q: curSearch || undefined,
+          categoryId: curCategory !== 'all' ? cat?.id : undefined,
+          backendSort: toBackendSort(curSort),
         });
       }
-    }, [fetchFirstPage, activeCategory, searchQuery, sortBy, categories]),
+
+      filtersReadyRef.current = true;
+
+      return () => { isMountedRef.current = false; };
+    }, [fetchFirstPage]),
   );
 
-  // Re-fetch from page 1 when category changes
+  // ── Filter / sort / search changes ──────────────────────────────────────────
+  // Collapsed into ONE effect (was 3 separate ones that raced each other).
+  // Gated by filtersReadyRef so it doesn't fire before useFocusEffect has run.
   useEffect(() => {
-    if (!isMountedRef.current) return;
-    const cat = categories.find((c) => c.slug === activeCategory);
-    setListings([]); setOffset(0); setHasMore(true);
-    fetchFirstPage({
-      q: searchQuery || undefined,
-      categoryId: activeCategory !== 'all' ? cat?.id : undefined,
-      backendSort: toBackendSort(sortBy),
-    });
-  }, [activeCategory]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch from page 1 when sort changes
-  useEffect(() => {
-    if (!isMountedRef.current) return;
-    const cat = categories.find((c) => c.slug === activeCategory);
-    setListings([]); setOffset(0); setHasMore(true);
-    fetchFirstPage({
-      q: searchQuery || undefined,
-      categoryId: activeCategory !== 'all' ? cat?.id : undefined,
-      backendSort: toBackendSort(sortBy),
-    });
-  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Debounced re-fetch when search text changes
-  useEffect(() => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || !filtersReadyRef.current) return;
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => {
-      const cat = categories.find((c) => c.slug === activeCategory);
+
+    const doFetch = () => {
+      const cat = categoriesRef.current.find((c) => c.slug === activeCategory);
       setListings([]); setOffset(0); setHasMore(true);
       fetchFirstPage({
         q: searchQuery || undefined,
         categoryId: activeCategory !== 'all' ? cat?.id : undefined,
         backendSort: toBackendSort(sortBy),
       });
-    }, 400);
-    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
-  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+    };
+
+    // Debounce only search; apply category/sort changes immediately
+    const isSearchChange = searchQuery !== (activeFetchParamsRef.current.q ?? '');
+    if (isSearchChange) {
+      searchDebounceRef.current = setTimeout(doFetch, 400);
+      return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+    }
+
+    doFetch();
+  }, [activeCategory, sortBy, searchQuery, fetchFirstPage]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || fetchingRef.current) return;

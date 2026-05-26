@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -25,6 +26,7 @@ interface ApiListing {
   payment: string;       // 'MONEY_ONLY' | 'FLEXIBLE'
   location: string | null;
   category: { glyph: string };
+  images: { url: string; isCover: boolean; sortOrder: number }[];
 }
 
 export default function MarketplaceCheckoutScreen() {
@@ -168,16 +170,29 @@ export default function MarketplaceCheckoutScreen() {
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 120, gap: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 220 + insets.bottom, gap: 16 }}
       >
 
         {/* ── Order Summary ── */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Order Summary</Text>
           <View style={styles.orderProduct}>
-            <LinearGradient colors={[Colors.emerald50, Colors.emerald100]} style={styles.orderProductImage}>
-              <Text style={styles.orderProductEmoji}>{listing.category?.glyph ?? '📦'}</Text>
-            </LinearGradient>
+            {(() => {
+              const coverUrl = listing.images
+                ?.slice()
+                .sort((a, b) => (a.isCover ? -1 : 1) - (b.isCover ? -1 : 1))[0]?.url ?? null;
+              return coverUrl ? (
+                <Image
+                  source={{ uri: coverUrl }}
+                  style={styles.orderProductImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <LinearGradient colors={[Colors.emerald50, Colors.emerald100]} style={styles.orderProductImage}>
+                  <Text style={styles.orderProductEmoji}>{listing.category?.glyph ?? '📦'}</Text>
+                </LinearGradient>
+              );
+            })()}
             <View style={styles.orderProductInfo}>
               <Text style={styles.orderProductName}>{listing.title}</Text>
               <Text style={styles.orderProductDesc} numberOfLines={2}>{listing.description ?? ''}</Text>
@@ -316,7 +331,12 @@ export default function MarketplaceCheckoutScreen() {
           </View>
         </View>
 
-        {/* ── Terms ── */}
+      </ScrollView>
+
+      {/* ── Bottom CTA ── */}
+      <View style={[styles.bottomCTA, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+
+        {/* Terms lives here so it can never overlap the scroll content */}
         <TouchableOpacity style={styles.termsRow} onPress={() => setAgreed(!agreed)} activeOpacity={0.7}>
           <Ionicons
             name={agreed ? 'checkbox' : 'square-outline'}
@@ -329,10 +349,7 @@ export default function MarketplaceCheckoutScreen() {
             {' '}and confirm all order details are correct.
           </Text>
         </TouchableOpacity>
-      </ScrollView>
 
-      {/* ── Bottom CTA ── */}
-      <View style={[styles.bottomCTA, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <TouchableOpacity
           style={[styles.confirmBtn, (!agreed || confirming) && styles.confirmBtnDisabled]}
           onPress={agreed && !confirming ? handleProceed : undefined}
@@ -486,6 +503,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    overflow: 'hidden',
   },
   orderProductEmoji: { fontSize: 34 },
   orderProductInfo:  { flex: 1, gap: 3 },
@@ -614,7 +632,7 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.gray200,
     paddingTop: 14,
     paddingHorizontal: 20,
-    gap: 4,
+    gap: 10,
   },
   confirmBtn: {
     flexDirection: 'row',

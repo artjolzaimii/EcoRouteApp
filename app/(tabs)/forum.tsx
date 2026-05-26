@@ -233,7 +233,7 @@ export default function ForumScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F6F7F9' },
 
-  header: { paddingHorizontal: 20, paddingBottom: 16 },
+  header: { paddingHorizontal: 24, paddingBottom: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   headerTitle: { color: Colors.white, fontSize: 22, fontWeight: '700' },
   headerSub: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 2 },

@@ -17,10 +17,11 @@ import { routeStore, useRouteStore } from '@/lib/routeStore';
 import { EcoRoute, EcoRoutesResponse, NearbyPartner, PartnerPin, RouteMood } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -97,6 +98,54 @@ export default function RoutesScreen() {
   const [detailSheetRoute, setDetailSheetRoute] = useState<EcoRoute | undefined>();
   const [detailSheetVisible, setDetailSheetVisible] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // ── Re-search when user picks a new origin/dest from the search screen ────────
+  useFocusEffect(
+    useCallback(() => {
+      const pendingOrigin = routeStore.consumePendingOrigin();
+      const pendingDest   = routeStore.consumePendingDest();
+      if (!pendingOrigin && !pendingDest) return;
+
+      const s = routeStore.get();
+      const oLat  = pendingOrigin?.lat     ?? s?.originLat     ?? 0;
+      const oLng  = pendingOrigin?.lng     ?? s?.originLng     ?? 0;
+      const dLat  = pendingDest?.lat       ?? s?.destLat       ?? 0;
+      const dLng  = pendingDest?.lng       ?? s?.destLng       ?? 0;
+      const oAddr = pendingOrigin?.address ?? s?.originAddress ?? '';
+      const dAddr = pendingDest?.address   ?? s?.destAddress   ?? '';
+
+      if (!oLat || !oLng || !dLat || !dLng) return;
+
+      setSearchLoading(true);
+      getEcoRoutes(
+        { lat: oLat, lng: oLng, name: oAddr },
+        { lat: dLat, lng: dLng, name: dAddr },
+        s?.mood,
+      )
+        .then((ecoResponse) => {
+          if (!ecoResponse.routes?.length) {
+            Alert.alert('No routes found', 'No eco-routes available for this journey. Try a different destination.');
+            return;
+          }
+          const recIdx = ecoResponse.routes.findIndex((r: any) => r.recommended);
+          routeStore.set({
+            originLat: oLat, originLng: oLng,
+            destLat:   dLat, destLng:   dLng,
+            originAddress: oAddr, destAddress: dAddr,
+            routes: [] as any,
+            selectedIndex: recIdx !== -1 ? recIdx : 0,
+            preferredMode: s?.preferredMode ?? 'TRANSIT' as any,
+            mood: s?.mood,
+            ecoResponse,
+          });
+        })
+        .catch((err: any) => {
+          Alert.alert('Could not get routes', err.message ?? 'Check your connection and try again.');
+        })
+        .finally(() => setSearchLoading(false));
+    }, []),
+  );
 
   // Determine which route format we have
   const ecoResponse: EcoRoutesResponse | undefined = state?.ecoResponse;
@@ -609,17 +658,52 @@ export default function RoutesScreen() {
           {/* Top route bar */}
           <View style={styles.topBar}>
             <View style={styles.topBarInner}>
-              <View style={styles.navIconWrap}>
-                <Ionicons name="navigate-outline" size={18} color={Colors.white} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.topBarTitle} numberOfLines={1}>
-                  {state.originAddress} → {state.destAddress}
-                </Text>
-                <TouchableOpacity onPress={() => router.push('/search')} activeOpacity={0.7}>
-                  <Text style={styles.topBarSub}>Tap to change route</Text>
+              {searchLoading ? (
+                <ActivityIndicator color={Colors.emerald600} style={{ marginRight: 4 }} />
+              ) : (
+                <View style={styles.navIconWrap}>
+                  <Ionicons name="navigate-outline" size={18} color={Colors.white} />
+                </View>
+              )}
+              <View style={{ flex: 1, gap: 2 }}>
+                {/* Origin row — tap to change starting point */}
+                <TouchableOpacity
+                  onPress={() => router.push({ pathname: '/search', params: { field: 'origin' } })}
+                  activeOpacity={0.7}
+                  disabled={searchLoading}
+                >
+                  <View style={styles.topBarRow}>
+                    <View style={styles.topBarDotGreen} />
+                    <Text style={styles.topBarLabel} numberOfLines={1}>{state.originAddress}</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={styles.topBarConnector} />
+
+                {/* Destination row — tap to change destination */}
+                <TouchableOpacity
+                  onPress={() => router.push('/search')}
+                  activeOpacity={0.7}
+                  disabled={searchLoading}
+                >
+                  <View style={styles.topBarRow}>
+                    <View style={styles.topBarDotRed} />
+                    <Text style={[styles.topBarLabel, { color: Colors.emerald600, fontWeight: '700' }]} numberOfLines={1}>
+                      {state.destAddress}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               </View>
+
+              {/* Swap / edit icon */}
+              <TouchableOpacity
+                onPress={() => router.push('/search')}
+                activeOpacity={0.7}
+                disabled={searchLoading}
+                style={styles.topBarEditBtn}
+              >
+                <Ionicons name="pencil-outline" size={16} color={Colors.gray600} />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -936,11 +1020,21 @@ const styles = StyleSheet.create({
 
   topBar: { position: 'absolute', top: 16, left: 24, right: 24, zIndex: 10 },
   topBarInner: {
-    backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 16,
-    paddingHorizontal: 16, paddingVertical: 12,
-    flexDirection: 'row', alignItems: 'center', gap: 12, ...Shadow.lg,
+    backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 16,
+    paddingHorizontal: 14, paddingVertical: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 10, ...Shadow.lg,
   },
-  navIconWrap: { width: 36, height: 36, backgroundColor: Colors.emerald600, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  navIconWrap: { width: 34, height: 34, backgroundColor: Colors.emerald600, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  topBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topBarDotGreen: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.emerald600, flexShrink: 0 },
+  topBarDotRed: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.red600, flexShrink: 0 },
+  topBarConnector: { height: 10, borderLeftWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.gray300, marginLeft: 4 },
+  topBarLabel: { color: Colors.gray900, fontSize: 12, fontWeight: '500', flex: 1 },
+  topBarEditBtn: {
+    width: 32, height: 32, backgroundColor: Colors.gray100,
+    borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+  },
+  // kept for legacy refs
   topBarTitle: { color: Colors.gray900, fontWeight: '600', fontSize: 13 },
   topBarSub: { color: Colors.emerald600, fontSize: 11, marginTop: 1 },
 

@@ -21,9 +21,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Shadow } from '@/constants/theme';
-import { api } from '@/lib/api';
+import { api, API_BASE_URL } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase'; // still needed for auth token
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
@@ -107,28 +107,33 @@ export default function EditProfileScreen() {
   };
 
   const uploadAvatar = async (uri: string) => {
-    if (!session?.user?.id) return;
     setAvatarUploading(true);
     try {
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const fileName = `${session.user.id}-${Date.now()}.${ext}`;
+      // Resolve MIME type from the URI extension
+      const rawExt = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+      const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-      const response = await fetch(uri);
-      const blob = await response.blob();
+      // Build multipart form — send to our backend so it uploads via service-role
+      // key and bypasses Supabase RLS on the avatars bucket.
+      const form = new FormData();
+      form.append('avatar', { uri, name: `avatar.${ext}`, type: mimeType } as any);
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
 
-      if (uploadError) throw uploadError;
+      const res = await fetch(`${API_BASE_URL}/api/user/avatar`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
 
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadData.path);
-      const publicUrl = urlData.publicUrl;
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Upload failed');
 
-      await api.patch('/api/user/profile', { avatarUrl: publicUrl });
-      setAvatarUrl(publicUrl);
+      setAvatarUrl(json.data.avatarUrl);
     } catch (err: any) {
-      Alert.alert('Upload failed', err.message ?? 'Could not upload photo. Make sure the "avatars" bucket exists in Supabase Storage and is set to public.');
+      Alert.alert('Upload failed', err.message ?? 'Could not upload photo. Please try again.');
     } finally {
       setAvatarUploading(false);
     }

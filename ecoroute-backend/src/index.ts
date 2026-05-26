@@ -33,19 +33,26 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 // ─── Ensure Supabase Storage bucket exists ────────────────────────────────────
 
 async function ensureStorageBucket() {
-  const BUCKET = "marketplace-images";
-  const { data: buckets } = await supabaseAdmin.storage.listBuckets();
-  const exists = buckets?.some((b) => b.name === BUCKET);
-  if (!exists) {
-    const { error } = await supabaseAdmin.storage.createBucket(BUCKET, {
-      public: true,
-      fileSizeLimit: 5 * 1024 * 1024,
-      allowedMimeTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
-    });
-    if (error) {
-      console.warn(`[storage] Could not create bucket "${BUCKET}": ${error.message}`);
-    } else {
-      console.log(`[storage] Created bucket "${BUCKET}"`);
+  const BUCKETS: { name: string; public: boolean }[] = [
+    { name: "marketplace-images", public: true },
+    { name: "avatars",            public: true },
+  ];
+
+  const { data: existing } = await supabaseAdmin.storage.listBuckets();
+  const existingNames = new Set(existing?.map((b) => b.name) ?? []);
+
+  for (const bucket of BUCKETS) {
+    if (!existingNames.has(bucket.name)) {
+      const { error } = await supabaseAdmin.storage.createBucket(bucket.name, {
+        public: bucket.public,
+        fileSizeLimit: 5 * 1024 * 1024,
+        allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
+      });
+      if (error) {
+        console.warn(`[storage] Could not create bucket "${bucket.name}": ${error.message}`);
+      } else {
+        console.log(`[storage] Created bucket "${bucket.name}"`);
+      }
     }
   }
 }

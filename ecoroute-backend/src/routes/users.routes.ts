@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../config/prisma";
 import { requireAuth } from "../middleware/auth.middleware";
@@ -6,6 +7,19 @@ import { validateBody } from "../middleware/validate.middleware";
 import { supabaseAdmin } from "../config/supabase";
 
 const router = Router();
+
+// multer: keep file in memory (no disk write needed)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (_req, file, cb) => {
+    if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only JPEG, PNG and WebP images are allowed"));
+    }
+  },
+});
 
 const UpdateProfileSchema = z.object({
   fullName: z.string().min(2).max(100).optional(),
@@ -20,24 +34,35 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const profile = await prisma.profile.findUnique({
-        where: { id: req.user!.profileId },
-        include: {
-          stats: true,
-          userBadges: {
-            include: { badge: true },
-            orderBy: { earnedAt: "desc" },
-            take: 5,
+      const [profile, badgeCount] = await Promise.all([
+        prisma.profile.findUnique({
+          where: { id: req.user!.profileId },
+          include: {
+            stats: true,
+            userBadges: {
+              include: { badge: true },
+              orderBy: { earnedAt: "desc" },
+              take: 5,
+            },
           },
-        },
-      });
+        }),
+        prisma.userBadge.count({
+          where: { profileId: req.user!.profileId },
+        }),
+      ]);
 
       if (!profile) {
         res.status(404).json({ success: false, error: "Profile not found" });
         return;
       }
 
-      res.json({ success: true, data: profile });
+      res.json({
+        success: true,
+        data: {
+          ...profile,
+          stats: profile.stats ? { ...profile.stats, badgeCount } : { badgeCount },
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -62,6 +87,57 @@ router.patch(
         },
       });
       res.json({ success: true, data: profile });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── POST /api/user/avatar ────────────────────────────────────────────────────
+// Accepts a multipart image upload, stores it in Supabase Storage using the
+// service-role key (bypasses RLS), and patches the profile avatarUrl.
+// Frontend: edit-profile.tsx
+
+router.post(
+  "/avatar",
+  requireAuth,
+  upload.single("avatar"),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: "No image file provided" });
+        return;
+      }
+
+      const ext = req.file.mimetype === "image/png" ? "png"
+                : req.file.mimetype === "image/webp" ? "webp"
+                : "jpg";
+      const fileName = `${req.user!.profileId}-${Date.now()}.${ext}`;
+
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        .from("avatars")
+        .upload(fileName, req.file.buffer, {
+          upsert: true,
+          contentType: req.file.mimetype,
+        });
+
+      if (uploadError) {
+        res.status(500).json({ success: false, error: uploadError.message });
+        return;
+      }
+
+      const { data: urlData } = supabaseAdmin.storage
+        .from("avatars")
+        .getPublicUrl(uploadData.path);
+
+      const publicUrl = urlData.publicUrl;
+
+      await prisma.profile.update({
+        where: { id: req.user!.profileId },
+        data: { avatarUrl: publicUrl },
+      });
+
+      res.json({ success: true, data: { avatarUrl: publicUrl } });
     } catch (err) {
       next(err);
     }
