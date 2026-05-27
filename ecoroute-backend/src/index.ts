@@ -57,16 +57,34 @@ async function ensureStorageBucket() {
   }
 }
 
+// ─── CORS allowed origins ─────────────────────────────────────────────────────
+// Set ALLOWED_ORIGINS on Render as a comma-separated list, e.g.:
+//   https://ecoroute-partner-dashboard.vercel.app,https://ecoroute-admin.vercel.app,https://ecoroute-apply.vercel.app
+//
+// Requests with no Origin header (mobile apps, server-to-server, health checks)
+// are always allowed. Wildcard "*" is never used so credentials/auth headers
+// remain supported.
+
+const ALLOWED_ORIGINS: string[] = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 // ─── Global middleware ────────────────────────────────────────────────────────
 
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.ALLOWED_ORIGINS
-      ? process.env.ALLOWED_ORIGINS.split(",")
-      : "*",
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    origin: (incomingOrigin, callback) => {
+      // No Origin header → mobile app / server-to-server / health check → allow
+      if (!incomingOrigin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(incomingOrigin)) return callback(null, true);
+      console.warn(`[cors] Blocked origin: ${incomingOrigin}`);
+      callback(new Error(`CORS: origin not allowed — ${incomingOrigin}`));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Authorization", "Content-Type"],
+    credentials: true,
   })
 );
 app.use(express.json({ limit: "1mb" }));
