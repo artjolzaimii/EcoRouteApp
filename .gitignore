@@ -50,6 +50,9 @@ app-example
 # Claude Code
 .claude/
 
+# JetBrains IDE
+.idea/
+
 # Local planning files
 plans/
 
