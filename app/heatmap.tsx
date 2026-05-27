@@ -393,7 +393,6 @@ export default function HeatmapScreen() {
             key={pin.id}
             coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
             onPress={() => setSelectedPin(pin)}
-            tracksViewChanges={false}
             anchor={{ x: 0.5, y: 0.5 }}
           >
             <View style={[styles.pinMarker, { backgroundColor: PIN_CONFIG[pin.category].color }]}>
