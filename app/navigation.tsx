@@ -278,13 +278,9 @@ export default function NavigationScreen() {
         text: 'Complete Trip',
         style: 'default',
         onPress: async () => {
-          if (ecoRoute?.geometry) {
-            api.post('/api/heatmap/save', {
-              encoded_polyline: ecoRoute.geometry,
-              co2_saved_kg: co2SavedG / 1000,
-              distance_km: distanceKm,
-            }).catch(() => {});
-          }
+          // NOTE: route is NOT automatically saved to the community heatmap.
+          // The user will get an explicit "Save as Eco Route" option on the
+          // trip-completed screen and can choose to share it with the community.
           setCompleting(true);
           try {
             if (state) {
@@ -293,6 +289,7 @@ export default function NavigationScreen() {
                 .reduce((sum, leg) => sum + leg.distanceKm, 0) ?? 0;
 
               const res = await api.post<{
+                trip?: { id: string };
                 pointsEarned: number;
                 streakBonusPoints: number;
                 newBalance: number;
@@ -324,6 +321,11 @@ export default function NavigationScreen() {
                 distanceKm,
                 durationMinutes: durationMin,
                 mode: routeMode,
+                // Eco Route fields — passed so the completed screen can offer the save action
+                tripId: res?.trip?.id,
+                routeGeometry: ecoRoute?.geometry,
+                originAddress: state.originAddress,
+                destAddress: state.destAddress,
               });
             }
           } catch {
@@ -338,6 +340,9 @@ export default function NavigationScreen() {
               distanceKm,
               durationMinutes: durationMin,
               mode: routeMode,
+              routeGeometry: ecoRoute?.geometry,
+              originAddress: state?.originAddress,
+              destAddress: state?.destAddress,
             });
           } finally {
             setCompleting(false);

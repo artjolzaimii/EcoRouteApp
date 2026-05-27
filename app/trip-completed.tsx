@@ -8,6 +8,7 @@ import {
   Animated,
   Alert,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,9 +19,12 @@ import { Colors, Shadow } from '@/constants/theme';
 import { Co2TransparencySheet } from '@/components/co2-transparency-sheet';
 import { Co2TransparencyData } from '@/lib/co2Transparency';
 import { tripResultStore, TripResult } from '@/lib/tripResultStore';
+import { api } from '@/lib/api';
 
 const CREAM = '#F1EFE8';
 const ECO_GREEN = Colors.emerald600;
+
+type EcoSaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 function modeDisplay(mode: string): string {
   switch (mode.toUpperCase()) {
@@ -43,6 +47,7 @@ export default function TripCompletedScreen() {
   // Consume the trip result once — keep a local copy for the lifetime of this screen
   const [result] = useState<TripResult | null>(() => tripResultStore.consume());
   const [co2SheetVisible, setCo2SheetVisible] = useState(false);
+  const [ecoSaveState, setEcoSaveState] = useState<EcoSaveState>('idle');
 
   const co2Kg      = result ? (result.co2SavedGrams / 1000).toFixed(2) : '0.00';
   const points     = result?.pointsEarned ?? 0;
@@ -62,6 +67,9 @@ export default function TripCompletedScreen() {
     pointMultiplier: result.co2SavedGrams > 0 ? Math.round((result.pointsEarned / (result.co2SavedGrams / 10)) * 10) / 10 : 0,
   } : null;
 
+  // Only show the eco-save CTA when we have a polyline to submit
+  const canSaveEcoRoute = Boolean(result?.routeGeometry);
+
   const shareText = result
     ? `I chose a greener route with EcoRoute 🌱\n\nMode: ${modeText}\nDistance: ${distanceKm} km\nCO₂ saved: ${co2Kg} kg\nGreen Points earned: +${totalPoints}`
     : 'I chose a greener route with EcoRoute 🌱';
@@ -71,6 +79,35 @@ export default function TripCompletedScreen() {
       await Share.share({ message: shareText });
     } catch {
       Alert.alert('Share unavailable', shareText);
+    }
+  };
+
+  const handleSaveEcoRoute = async () => {
+    if (!result?.routeGeometry || ecoSaveState !== 'idle') return;
+    setEcoSaveState('saving');
+    try {
+      await api.post('/api/heatmap/eco-routes', {
+        encoded_polyline: result.routeGeometry,
+        trip_id: result.tripId ?? null,
+        co2_saved_kg: result.co2SavedGrams / 1000,
+        distance_km: result.distanceKm,
+        mode: result.mode,
+        origin_address: result.originAddress ?? null,
+        dest_address: result.destAddress ?? null,
+      });
+      setEcoSaveState('saved');
+    } catch (err: any) {
+      // 409 = duplicate — treat as already saved
+      if (err?.status === 409 || err?.message?.includes('409')) {
+        setEcoSaveState('saved');
+      } else {
+        setEcoSaveState('error');
+        Alert.alert(
+          'Could not save',
+          'Failed to add route to the community map. Please try again.',
+          [{ text: 'OK', onPress: () => setEcoSaveState('idle') }],
+        );
+      }
     }
   };
 
@@ -225,7 +262,47 @@ export default function TripCompletedScreen() {
             Every green trip counts! 🌍
           </Animated.Text>
 
-          {/* Buttons */}
+          {/* ── Save as Eco Route CTA ─────────────────────────────────────────── */}
+          {canSaveEcoRoute && (
+            <Animated.View style={[styles.ecoRouteCard, { opacity: btnsOpacity, transform: [{ translateY: btnsSlide }] }]}>
+              <View style={styles.ecoRouteHeader}>
+                <Ionicons name="map-outline" size={22} color={ECO_GREEN} />
+                <View style={styles.ecoRouteTextWrap}>
+                  <Text style={styles.ecoRouteTitle}>Share with the community</Text>
+                  <Text style={styles.ecoRouteSubtitle}>
+                    Add this route to the Eco Map so others can discover it
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.ecoRouteBtn,
+                  ecoSaveState === 'saved' && styles.ecoRouteBtnSaved,
+                  ecoSaveState === 'saving' && styles.ecoRouteBtnSaving,
+                ]}
+                onPress={handleSaveEcoRoute}
+                activeOpacity={0.85}
+                disabled={ecoSaveState !== 'idle'}
+              >
+                {ecoSaveState === 'saving' ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : ecoSaveState === 'saved' ? (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={18} color={Colors.white} />
+                    <Text style={styles.ecoRouteBtnText}>Saved to Eco Map</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="leaf-outline" size={18} color={Colors.white} />
+                    <Text style={styles.ecoRouteBtnText}>Save as Eco Route</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          {/* Action Buttons */}
           <Animated.View style={[styles.btnsWrap, { opacity: btnsOpacity, transform: [{ translateY: btnsSlide }] }]}>
             <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.9}>
               <Ionicons name="share-social-outline" size={19} color={ECO_GREEN} />
@@ -295,8 +372,39 @@ const styles = StyleSheet.create({
   modeLabel: { color: Colors.gray600, fontSize: 13, marginBottom: 4 },
   modeValue: { color: '#1A1A1A', fontWeight: '600', fontSize: 15 },
 
-  motive: { color: Colors.gray600, fontSize: 17, marginBottom: 24 },
+  motive: { color: Colors.gray600, fontSize: 17, marginBottom: 20 },
 
+  // ── Eco Route CTA card ────────────────────────────────────────────────────
+  ecoRouteCard: {
+    width: '100%',
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.emerald100,
+    gap: 14,
+    ...Shadow.md,
+  },
+  ecoRouteHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  ecoRouteTextWrap: { flex: 1 },
+  ecoRouteTitle: { color: '#1A1A1A', fontWeight: '700', fontSize: 15, marginBottom: 2 },
+  ecoRouteSubtitle: { color: Colors.gray500, fontSize: 13, lineHeight: 18 },
+  ecoRouteBtn: {
+    backgroundColor: ECO_GREEN,
+    borderRadius: 14,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    ...Shadow.sm,
+  },
+  ecoRouteBtnSaved: { backgroundColor: Colors.emerald700 },
+  ecoRouteBtnSaving: { opacity: 0.8 },
+  ecoRouteBtnText: { color: Colors.white, fontWeight: '700', fontSize: 15 },
+
+  // ── Action buttons ────────────────────────────────────────────────────────
   btnsWrap: { width: '100%', gap: 12 },
   shareBtn: {
     backgroundColor: Colors.white, borderRadius: 20, paddingVertical: 16,

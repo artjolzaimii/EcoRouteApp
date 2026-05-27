@@ -15,6 +15,12 @@ export type TripResult = {
   distanceKm: number;
   durationMinutes: number;
   mode: string;
+
+  // Eco Route saving — only present when coming from real navigation
+  tripId?: string;          // Prisma Trip.id, used for dedup on backend
+  routeGeometry?: string;   // Google-encoded polyline for heatmap
+  originAddress?: string;
+  destAddress?: string;
 };
 
 let _result: TripResult | null = null;
