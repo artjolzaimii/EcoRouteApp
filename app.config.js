@@ -4,18 +4,18 @@
 
 module.exports = ({ config }) => ({
   ...config,
-  name: 'EcoRouteApp',
+  name: 'EcoRoute',
   slug: 'EcoRouteApp',
   owner: 'ecoroute',
   version: '1.0.0',
   orientation: 'portrait',
-  icon: './assets/images/icon.png',
+  icon: './assets/images/ecoroute_logo.png',
   scheme: 'ecorouteapp',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.anonymous.EcoRouteApp',
+    bundleIdentifier: 'com.ecoroute.app',
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },
@@ -25,10 +25,13 @@ module.exports = ({ config }) => ({
   },
   android: {
     adaptiveIcon: {
-      backgroundColor: '#E6F4FE',
-      foregroundImage: './assets/images/android-icon-foreground.png',
-      backgroundImage: './assets/images/android-icon-background.png',
-      monochromeImage: './assets/images/android-icon-monochrome.png',
+      foregroundImage: './assets/images/ecoroute_logo.png',
+      backgroundColor: '#10B981',
+      monochromeImage: './assets/images/notification-icon.png',
+    },
+    notification: {
+      icon: './assets/images/notification-icon.png',
+      color: '#10B981',
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
@@ -55,6 +58,7 @@ module.exports = ({ config }) => ({
     [
       'expo-notifications',
       {
+        icon: './assets/images/notification-icon.png',
         color: '#10B981',
       },
     ],
@@ -74,11 +78,11 @@ module.exports = ({ config }) => ({
     [
       'expo-splash-screen',
       {
-        image: './assets/images/splash-icon.png',
+        image: './assets/images/ecoroute_logo.png',
         imageWidth: 200,
         resizeMode: 'contain',
         backgroundColor: '#ffffff',
-        dark: { backgroundColor: '#000000' },
+        dark: { backgroundColor: '#0f172a' },
       },
     ],
   ],
