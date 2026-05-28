@@ -9,6 +9,7 @@ import {
   Switch,
   Dimensions,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -492,8 +493,22 @@ export default function MarketplaceScreen() {
                         View
                       </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.chatBtn} activeOpacity={0.8}>
-                      <Ionicons name="chatbubble-outline" size={15} color={Colors.gray700} />
+                    <TouchableOpacity
+                      style={[styles.chatBtn, !product.partner.businessEmail && styles.chatBtnDisabled]}
+                      activeOpacity={product.partner.businessEmail ? 0.8 : 1}
+                      disabled={!product.partner.businessEmail}
+                      onPress={() => {
+                        const email = product.partner.businessEmail;
+                        if (!email) return;
+                        const subject = encodeURIComponent('EcoRoute Marketplace Inquiry');
+                        Linking.openURL(`mailto:${email}?subject=${subject}`);
+                      }}
+                    >
+                      <Ionicons
+                        name="mail-outline"
+                        size={15}
+                        color={product.partner.businessEmail ? Colors.gray700 : Colors.gray400}
+                      />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -849,6 +864,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chatBtnDisabled: {
+    opacity: 0.4,
   },
 
   // ── Load More ──

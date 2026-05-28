@@ -87,7 +87,7 @@ router.get(
           include: {
             category: true,
             images:   { where: { isCover: true }, take: 1 },
-            partner:  { select: { businessName: true, location: true, logoUrl: true } },
+            partner:  { select: { businessName: true, location: true, logoUrl: true, businessEmail: true } },
           },
         }),
         (prisma as any).marketplaceListing.count({ where }),
@@ -111,7 +111,7 @@ router.get("/listings/:id", async (req, res, next) => {
       include: {
         category: true,
         images:   { orderBy: { sortOrder: "asc" } },
-        partner:  { select: { id: true, businessName: true, location: true, logoUrl: true } },
+        partner:  { select: { id: true, businessName: true, location: true, logoUrl: true, businessEmail: true } },
       },
     });
 

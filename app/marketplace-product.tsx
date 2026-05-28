@@ -11,6 +11,7 @@ import {
   Share,
   Dimensions,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -33,7 +34,7 @@ interface ApiListing {
   stock: number | null;
   location: string | null;
   category: { slug: string; label: string; glyph: string };
-  partner: { businessName: string; location: string | null };
+  partner: { businessName: string; location: string | null; businessEmail: string | null };
   images: { url: string; isCover: boolean }[];
 }
 
@@ -61,6 +62,7 @@ function adaptListing(l: ApiListing) {
       verified: true,
       location: l.partner?.location ?? l.location ?? '',
       responseTime: 'Usually responds within 24 hours',
+      email: l.partner?.businessEmail ?? null,
     },
     userReviews: [] as { name: string; avatar: string; rating: number; date: string; comment: string; helpful: number }[],
   };
@@ -104,6 +106,14 @@ export default function MarketplaceProductScreen() {
   const pts     = product?.points ?? 0;
   // FLEXIBLE: always accessible — user can choose 0 pts and pay full money sim
   const canAfford = true;
+
+  const handleMessageSeller = () => {
+    const email = product?.seller.email;
+    if (!email) return;
+    const subject = encodeURIComponent('EcoRoute Marketplace Inquiry');
+    const body = encodeURIComponent(`Hi ${product?.seller.name},\n\nI'm interested in "${product?.name}" listed on EcoRoute Marketplace.\n\nCould you please provide more details?\n\nThank you!`);
+    Linking.openURL(`mailto:${email}?subject=${subject}&body=${body}`);
+  };
 
   const handleShare = async (_platform: string) => {
     setShowShareModal(false);
@@ -261,9 +271,16 @@ export default function MarketplaceProductScreen() {
                   <Text style={styles.sellerRatingCount}>({product.seller.totalReviews})</Text>
                 </View>
                 <Text style={styles.sellerResponse}>{product.seller.responseTime}</Text>
-                <TouchableOpacity style={styles.messageBtnFull} activeOpacity={0.8}>
-                  <Ionicons name="chatbubble-outline" size={16} color={Colors.white} />
-                  <Text style={styles.messageBtnText}>Message Seller</Text>
+                <TouchableOpacity
+                  style={[styles.messageBtnFull, !product.seller.email && styles.messageBtnDisabled]}
+                  activeOpacity={product.seller.email ? 0.8 : 1}
+                  onPress={product.seller.email ? handleMessageSeller : undefined}
+                  disabled={!product.seller.email}
+                >
+                  <Ionicons name="mail-outline" size={16} color={Colors.white} />
+                  <Text style={styles.messageBtnText}>
+                    {product.seller.email ? 'Message Seller' : 'Contact Unavailable'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -694,6 +711,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: BorderRadius.xl,
     marginTop: 4,
+  },
+  messageBtnDisabled: {
+    backgroundColor: Colors.gray300,
   },
   messageBtnText: {
     color: Colors.white,

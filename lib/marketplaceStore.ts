@@ -16,7 +16,7 @@ export interface MktListing {
   moneyPrice: number | null;
   payment: string;
   category: MktCategory;
-  partner: { businessName: string; location: string | null };
+  partner: { businessName: string; location: string | null; businessEmail: string | null };
   images: { url: string; isCover: boolean }[];
 }
 
