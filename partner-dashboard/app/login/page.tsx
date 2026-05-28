@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
-  const [remember, setRemember] = useState(true)
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,12 +34,12 @@ export default function LoginPage() {
       {/* Left poster */}
       <div className="auth-poster">
         <div>
-          <div className="auth-poster brand-mark" style={{ background: 'none', boxShadow: 'none', padding: 0, overflow: 'hidden', borderRadius: 14 }}>
+          <div className="brand-mark" style={{ background: 'none', boxShadow: 'none', padding: 0, borderRadius: 14 }}>
             <Image
               src="/ecoroute_logo.png"
               alt="EcoRoute logo"
-              width={52}
-              height={52}
+              width={60}
+              height={60}
               style={{ objectFit: 'contain', display: 'block' }}
               priority
             />
@@ -113,44 +113,19 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="row-between">
-            <button
-              type="button"
-              className={`checkbox ${remember ? 'on' : ''}`}
-              onClick={() => setRemember(!remember)}
-            >
-              <span className="box">
-                {remember && <Icon name="check" size={11} strokeWidth={2.4} />}
-              </span>
-              Remember me
-            </button>
-            <a href="#" className="link">Forgot password?</a>
-          </div>
-
           {error && (
             <div style={{ color: 'var(--rose-600)', fontSize: 13, padding: '10px 14px', background: 'var(--rose-50)', borderRadius: 8 }}>
               {error}
             </div>
           )}
 
-          <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+          <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center', marginTop: 24 }}>
             {loading ? 'Signing in…' : 'Sign in to partner portal'}
           </button>
 
-          <div className="auth-divider">or continue with</div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <button type="button" className="btn btn-secondary" style={{ justifyContent: 'center' }}>
-              <Icon name="google" size={16} /> Google
-            </button>
-            <button type="button" className="btn btn-secondary" style={{ justifyContent: 'center' }}>
-              <Icon name="apple" size={16} /> Apple
-            </button>
-          </div>
-
           <p style={{ textAlign: 'center', marginTop: 22, fontSize: 13, color: 'var(--gray-500)' }}>
             New to EcoRoute?{' '}
-            <a href="#" className="link">Apply to become a partner</a>
+            <a href="https://ecoroute-partner-application.vercel.app/" className="link">Apply to become a partner</a>
           </p>
         </form>
       </div>

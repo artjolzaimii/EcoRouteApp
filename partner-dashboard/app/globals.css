@@ -567,7 +567,7 @@ table.t td { color: var(--gray-700); }
   color: var(--white);
 }
 .auth-poster .brand-mark {
-  width: 44px; height: 44px; border-radius: 14px;
+  width: 60px; height: 60px; border-radius: 14px;
   background: rgba(255,255,255,0.14);
   border: 1px solid rgba(255,255,255,0.22);
   display: grid; place-items: center;

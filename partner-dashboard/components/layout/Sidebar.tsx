@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { BrandMark } from '../ui/BrandMark'
@@ -16,6 +17,8 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const handleSignOut = async () => {
     await signOut()
@@ -24,6 +27,16 @@ export function Sidebar() {
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    if (menuOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuOpen])
 
   return (
     <aside className="sidebar">
@@ -56,19 +69,40 @@ export function Sidebar() {
         <span>Add product</span>
       </Link>
 
-      <div className="sidebar-foot">
-        <div className="avatar">BL</div>
+      <div className="sidebar-foot" style={{ position: 'relative' }} ref={menuRef}>
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          style={{ display: 'contents', cursor: 'pointer' }}
+          title="Account menu"
+        >
+          <div className="avatar" style={{ cursor: 'pointer', flexShrink: 0 }}>BL</div>
+        </button>
         <div className="meta" style={{ flex: 1, minWidth: 0 }}>
           <div className="name">Partner</div>
           <div className="role">EcoRoute</div>
         </div>
-        <button
-          onClick={handleSignOut}
-          title="Sign out"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-500)', padding: 4 }}
-        >
-          <Icon name="arrowLeft" size={16} />
-        </button>
+
+        {menuOpen && (
+          <div style={{
+            position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
+            background: 'var(--white)', border: '1px solid var(--gray-200)',
+            borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+            minWidth: 160, zIndex: 100, overflow: 'hidden',
+          }}>
+            <button
+              onClick={handleSignOut}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                padding: '11px 14px', background: 'none', border: 'none',
+                cursor: 'pointer', fontSize: 13, color: 'var(--rose-600)',
+                fontWeight: 500, textAlign: 'left',
+              }}
+            >
+              <Icon name="arrowLeft" size={15} />
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   )
